@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VPBuddy Desktop</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-icon">V</div>
+        <span>VPBuddy Desktop</span>
+      </div>
+      <div class="status">
+        <span class="status-pill" id="gpu-pill" title="GPU 服务器连接状态">
+          <span class="dot" id="gpu-dot"></span>
+          <span id="gpu-status">检测中</span>
+        </span>
+        <span class="status-pill" id="rec-pill" title="本地录音状态">
+          <span class="dot" id="rec-dot"></span>
+          <span id="rec-status">未录音</span>
+        </span>
+      </div>
+    </header>
+
+    <main class="content">
+      <!-- 实时转写流 (替换 tab-1) -->
+      <section id="panel-stream" class="panel active">
+        <h2>实时转写</h2>
+        <div class="rec-controls">
+          <!-- 2026-07-01 ADR-0022: 首页强制选/创建会议 — 下拉旧会议 + 输入新会议名, 二者必填其一才启用录音按钮 -->
+          <select id="meeting-select" title="选择已有会议"><option value="">— 选择已有会议 —</option></select>
+          <span style="color: var(--text-muted); font-size: 12px;">或</span>
+          <input type="text" id="meeting-new" placeholder="输入新会议名 (3-32 字符, A-Z 0-9 _ -)" maxlength="32" />
+          <!-- 2026-07-01 ADR-0021: 音频源类型下拉 -->
+          <select id="audio-source-kind" title="音频源">
+            <option value="microphone">麦克风 (默认)</option>
+            <option value="loopback">系统内录</option>
+            <option value="both">麦克风 + 内录</option>
+          </select>
+          <!-- 2026-06-27: 合并开始/停止按钮 (一个 toggle 按钮) — 默认 disabled, 选/输入会议后启用 -->
+          <button id="btn-rec" class="btn-rec" data-state="idle" disabled title="请先选择或输入会议">开始录音</button>
+          <label><input type="checkbox" id="auto-upload" checked /> 自动上传</label>
+          <select id="audio-device"><option value="">默认音频设备</option></select>
+          <!-- 2026-07-01 ADR-0022: 录音中才能结束会议 -->
+          <button id="btn-end-meeting" class="btn-rec" data-state="hidden" style="display:none;">结束会议</button>
+        </div>
+        <!-- 2026-06-27: 实时波形图 (绿柱=有声音, 平线=静音) — 判断"采到声音"的最直观信号 -->
+        <canvas id="waveform" class="waveform" height="60"></canvas>
+        <!-- 2026-06-28: ASR 30s batch 延迟说明 banner — 防止用户误以为"卡了"
+             funasr 不是 streaming, 攒满 30s WAV 才转写一次, 所以说话后最长等 30s 才出字
+             之前 id="latency" 占位没填, 现在用 main.js 动态显示"已等 Xs / 30s"
+             不用新加 CSS 类 — 复用现有 .stream-info 样式 -->
+        <div class="stream-info" id="latency-banner" style="color: var(--warning);">
+          <span id="latency">延迟 -</span> · 30s 切片 + funasr batch (说话后最长等 30s 出字)
+        </div>
+        <!-- 2026-06-28: 把被吃掉的 4 个 stats (段数/字节/上传/SSE) 拆成独立行 -->
+        <div class="stream-info">
+          <span id="seg-count">0 段</span> · <span id="byte-count">0 KB</span> · <span id="up-count">0 上传</span> ·
+          <span id="conn-status">SSE 未连接</span>
+        </div>
+        <!-- 2026-06-27: 5 类结构化事实降级到 stream 面板顶部 summary (删 facts 独立页签) -->
+        <div class="stream-info" id="facts-summary">
+          <span class="fact-pill"><span class="fact-label">需求</span><span id="fact-req">0</span></span> ·
+          <span class="fact-pill"><span class="fact-label">目标</span><span id="fact-goal">0</span></span> ·
+          <span class="fact-pill"><span class="fact-label">功能</span><span id="fact-feat">0</span></span> ·
+          <span class="fact-pill"><span class="fact-label">风险</span><span id="fact-risk">0</span></span> ·
+          <span class="fact-pill"><span class="fact-label">问题</span><span id="fact-que">0</span></span> ·
+          <!-- 2026-06-27: 新增 — 最近一段 ASR 提示, 一眼看到语音进系统 -->
+          <span class="last-seg-pill" id="last-seg">最新: 等待语音…</span>
+        </div>
+        <div id="stream-list" class="stream-list"></div>
+        <!-- 2026-07-03 v0.8.4: 音频设备警告 banner (Windows loopback 等真环境支持走 v0.9.x) -->
+        <div id="audio-warning" class="banner-warn" style="display:none; padding:8px 12px; margin:8px 16px; border-radius:6px; background:#fff3cd; color:#856404; border:1px solid #ffeeba;"></div>
+      </section>
+
+      <!-- 会议产物 (2026-06-27: 6 文档 6 块并列, SSE 自动推流; 原 "6 docs") -->
+      <!-- 2026-07-03 v0.8.4: 初始 placeholder, 等 SSE doc-status 推真实内容 -->
+      <section id="panel-docs" class="panel">
+        <h2>会议产物 (6 类文档 · SSE 自动刷新)</h2>
+        <div id="docs-grid" class="docs-grid">
+          <div class="doc-block doc-block-empty" data-kind="req">
+            <div class="doc-head"><span class="doc-kind">需求</span><span class="doc-count">0</span><span class="doc-state">待生成</span></div>
+            <pre class="doc-body">暂无产物; 说话 / 上传文本后自动生成</pre>
+          </div>
+          <div class="doc-block doc-block-empty" data-kind="arch">
+            <div class="doc-head"><span class="doc-kind">架构</span><span class="doc-count">0</span><span class="doc-state">待生成</span></div>
+            <pre class="doc-body">暂无产物; 说话 / 上传文本后自动生成</pre>
+          </div>
+          <div class="doc-block doc-block-empty" data-kind="tasks">
+            <div class="doc-head"><span class="doc-kind">任务</span><span class="doc-count">0</span><span class="doc-state">待生成</span></div>
+            <pre class="doc-body">暂无产物; 说话 / 上传文本后自动生成</pre>
+          </div>
+          <div class="doc-block doc-block-empty" data-kind="api">
+            <div class="doc-head"><span class="doc-kind">API</span><span class="doc-count">0</span><span class="doc-state">待生成</span></div>
+            <pre class="doc-body">暂无产物; 说话 / 上传文本后自动生成</pre>
+          </div>
+          <div class="doc-block doc-block-empty" data-kind="risk">
+            <div class="doc-head"><span class="doc-kind">风险</span><span class="doc-count">0</span><span class="doc-state">待生成</span></div>
+            <pre class="doc-body">暂无产物; 说话 / 上传文本后自动生成</pre>
+          </div>
+          <!-- 2026-06-27: demo 块独立成 panel, 此处只占位 -->
+          <div class="doc-block doc-block-stub" data-kind="demo">
+            <div class="doc-head"><span class="doc-kind">演示</span><span class="doc-count">-</span><span class="doc-state">已抽到独立页签</span></div>
+            <pre class="doc-body">点击底部 "演示" 页签查看</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- 演示 (2026-06-27: 独立页签, 全屏 iframe 展示; 2026-07-01 ADR-0024: 加版本下拉)
+           2026-07-03 v0.8.4: 初始 placeholder, 没版本时显示提醒; 版本 select 即时切 iframe.src -->
+      <section id="panel-demo" class="panel">
+        <h2>演示 (SSE 自动推流, 多版本切换)</h2>
+        <div class="demo-controls" style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+          <select id="demo-version-select" title="选择 demo 版本"><option value="">— 暂无版本 —</option></select>
+          <span id="demo-version-info" style="color: var(--text-muted); font-size:12px;"></span>
+          <button id="demo-latest-btn" class="btn-small" disabled>跳到最新</button>
+        </div>
+        <iframe id="demo-iframe" class="demo-iframe-full" sandbox="allow-scripts allow-forms"></iframe>
+      </section>
+
+      <!-- 知识库检索 (2026-07-03 v0.8.4: 加上传按钮 + 删除按钮列表) -->
+      <section id="panel-kb" class="panel">
+        <h2>知识库 RAG</h2>
+        <div class="kb-search">
+          <input type="text" id="kb-q" placeholder="输入查询..." />
+          <button id="kb-btn">检索</button>
+        </div>
+        <div class="kb-upload" style="margin:8px 0; display:flex; gap:6px; align-items:center;">
+          <input type="file" id="kb-file" accept=".txt,.md,.pdf" style="flex:1;" />
+          <button id="kb-upload-btn" type="button" disabled title="先开始会议再上传">上传入 KB</button>
+        </div>
+        <div id="kb-upload-status" style="color:var(--text-muted); font-size:12px; margin-bottom:8px;"></div>
+        <div id="kb-results"></div>
+      </section>
+
+      <!-- VP Chat -->
+      <section id="panel-chat" class="panel">
+        <h2>VP Chat (Hermes)</h2>
+
+        <!-- 2026-07-01 ADR-0028 Commit 4: 协作提问折叠面板 (默认折叠, 有 N 个待答 Q 时显示徽标)
+             实时 SSE `collab-update` 推流: 新 Q 自动展开, 答案回填后折叠或转 Answered -->
+        <details id="collab-panel" class="collab-panel">
+          <summary>
+            <span class="collab-label">🤝 协作疑问</span>
+            <span id="collab-pending-count" class="collab-badge" style="display:none;">0</span>
+            <span id="collab-collapsed-info" class="collab-collapsed-info"></span>
+          </summary>
+          <div class="collab-body">
+            <div id="collab-pending" class="collab-pending">
+              <div class="collab-empty">暂无待答疑问。Agent 提问后会出现在这里。</div>
+            </div>
+            <div class="collab-ask-row">
+              <select id="collab-section">
+                <option value="req">需求</option>
+                <option value="arch">架构</option>
+                <option value="tasks">任务</option>
+                <option value="api">API</option>
+                <option value="risk">风险</option>
+                <option value="demo">演示</option>
+              </select>
+              <input type="text" id="collab-q-input" placeholder="主动追问 (例: 性能预算?)" maxlength="200" />
+              <button id="collab-ask-btn" type="button">提问</button>
+            </div>
+            <details class="collab-answered-toggle">
+              <summary>已回答 (<span id="collab-answered-count">0</span>)</summary>
+              <div id="collab-answered"></div>
+            </details>
+          </div>
+        </details>
+
+        <div id="chat-list" class="chat-list">
+          <div class="chat-empty">会议开始后，可以在这里向 Hermes 追问、改方向或调度 6 个子 agent。</div>
+        </div>
+        <!-- 2026-07-01 ADR-0023: 附件预览区 (缩略图 + 文件名 + 大小 + 删按钮) -->
+        <div id="chat-attachments" class="chat-attachments"></div>
+        <div class="chat-input-row">
+          <!-- 📎 按钮: 触发隐藏的 file input -->
+          <button id="chat-attach" title="上传文件 / 图片 (ADR-0023)" type="button">📎</button>
+          <input type="file" id="chat-file" multiple accept=".txt,.md,.pdf,image/png,image/jpeg,image/gif,image/webp" style="display:none" />
+          <textarea id="chat-input" placeholder="例如：把 Demo 改成面向企业管理员的后台视角"></textarea>
+          <button id="chat-send">发送</button>
+        </div>
+        <div id="chat-status" class="chat-status">Chat 未连接</div>
+      </section>
+
+      <section id="panel-settings" class="panel">
+        <h2>设置</h2>
+        <div class="settings-card">
+          <label>GPU 服务器地址</label>
+          <input type="text" id="gpu-url" placeholder="从 ~/.vpbuddy-client.yaml 读取" />
+          <button id="btn-save-url" class="btn-small">保存</button>
+          <button id="btn-open-config-dir" class="btn-small">打开配置文件</button>
+          <p class="settings-note">优先级: 环境变量 VPBUDDY_GPU_URL &gt; <code>~/.vpbuddy-client.yaml</code> &gt; 内置默认值 (47.100.182.3:28765)。"保存" 后立即生效并写回 yaml。</p>
+        </div>
+        <div class="settings-card">
+          <label>客户端日志</label>
+          <!-- 2026-06-27 加: 设置页展示日志路径 + 打开目录按钮 (2026-06-27 张胜东: "直接打开目录不就好了") -->
+          <div class="settings-row">
+            <code id="log-path" class="log-path">加载中...</code>
+            <button id="btn-open-log-dir" class="btn-small">打开目录</button>
+          </div>
+          <p class="settings-note">采集不到声音时, 把这个文件最后 30 行贴给我。</p>
+        </div>
+        <div class="settings-card">
+          <label>界面语言</label>
+          <select id="ui-lang">
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
+          <p class="settings-note">当前实现提供基础界面文案切换；会议内容和文档按服务端生成语言展示。</p>
+        </div>
+      </section>
+    </main>
+
+    <nav class="bottom-nav">
+      <button data-panel="stream" class="active">转写</button>
+      <button data-panel="docs">产物</button>
+      <button data-panel="demo">演示</button>
+      <button data-panel="kb">知识库</button>
+      <button data-panel="chat">Chat</button>
+      <button data-panel="settings">设置</button>
+    </nav>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

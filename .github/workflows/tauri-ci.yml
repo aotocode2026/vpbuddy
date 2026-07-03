@@ -1,0 +1,63 @@
+# 2026-06-25: 旧 Tauri CI 已废弃, 被 tauri-multi-build.yml 替代
+# 保留文件仅作存档, job 全部 disable
+name: VPBuddy Tauri CI (deprecated)
+
+"on":
+  # 2026-06-25: disable, 用 tauri-multi-build.yml
+  push:
+    branches: [never]
+  pull_request:
+    branches: [never]
+
+jobs:
+  test:
+    name: cargo test + check + build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vpbuddy-client/src-tauri -> target
+
+      - name: Install system dependencies (Tauri Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libdbus-1-dev \
+            pkg-config \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            libgtk-3-dev \
+            libwebkit2gtk-4.1-dev \
+            libasound2-dev
+
+      - name: cargo check
+        working-directory: vpbuddy-client/src-tauri
+        run: cargo check --all-targets
+
+      - name: cargo test (excluding gpu_e2e)
+        working-directory: vpbuddy-client/src-tauri
+        run: cargo test --test audio_unit --test gpu_e2e
+
+      - name: cargo build (release)
+        working-directory: vpbuddy-client/src-tauri
+        run: cargo build --release
+
+      - name: Verify binary
+        working-directory: vpbuddy-client/src-tauri
+        run: |
+          ls -la target/release/vpbuddy-client
+          file target/release/vpbuddy-client
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vpbuddy-client-linux-x86_64
+          path: vpbuddy-client/src-tauri/target/release/vpbuddy-client
+          if-no-files-found: error
