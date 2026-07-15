@@ -1772,6 +1772,14 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
                 _log.error("[ws_realtime_asr] close_meeting failed: %s", _ce)
         else:
             _log.info("[ws_realtime_asr] connection lost, meeting %s kept open for potential reconnect", meeting_id)
+            # v0.23.1: connection lost 也触发文档生成 (只调 task_manager, 不关会议)
+            try:
+                from ..task_manager import get_task_manager
+                from ..sub_session_controller import run_docs
+                _log.info("[ws_realtime_asr] trigger doc gen after WS lost, meeting=%s", meeting_id)
+                get_task_manager().submit(meeting_id, run_docs)
+            except Exception as _ce:
+                _log.warning("[ws_realtime_asr] doc gen after lost failed: %s", _ce)
             from ..realtime_server import push_event
             try:
                 push_event(meeting_id, "recording-disconnected", {
