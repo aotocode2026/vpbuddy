@@ -1675,7 +1675,7 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
                 from ..storage import MeetingStorage
                 st = MeetingStorage(DATA_DIR)
                 debounce = 6
-                await _asyncio.sleep(debounce)
+                await _asyncio.sleep(1)
                 while _doc_running[0]:
                     if st.exists(meeting_id):
                         state = st.load(meeting_id)
