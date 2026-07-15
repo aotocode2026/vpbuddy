@@ -1680,6 +1680,9 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
                     if st.exists(meeting_id):
                         state = st.load(meeting_id)
                         cur = state.cleaned_text if state.cleaned_text else ""
+                        if not cur.strip():
+                            await _asyncio.sleep(debounce)
+                            continue
                         cur_hash = hashlib.md5(cur.encode()).hexdigest()
                         if cur_hash != _doc_last_hash[0]:
                             _doc_last_hash[0] = cur_hash
