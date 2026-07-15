@@ -1653,15 +1653,8 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
         import asyncio as _asyncio
 
         # v0.23.1: 事件驱动 — 每句转写完成触发 task_manager.submit,
-        # 6s debounce 避免连续数十句每句都调 LLM 生成文档.
-        _last_submit_ts: dict[str, float] = {}
+        # task_manager 内部 debounce: running 时 defer, 完成后 kick.
         def _on_state_changed(_mid: str):
-            import time as _time
-            _now = _time.time()
-            _prev = _last_submit_ts.get(_mid, 0)
-            if _now - _prev < 6:
-                return
-            _last_submit_ts[_mid] = _now
             from ..task_manager import get_task_manager
             from ..sub_session_controller import run_docs as _docs
             try:

@@ -282,7 +282,6 @@ def run_docs(gen_id: int, mid: str) -> dict[str, Any]:
     """统一文档 runner — batch_docs + demo 顺序触发，被 task_manager 调度.
     
     gen_id 用于 stale check: 若此 generation 已被 supersede, 跳过调度.
-    v0.23.1: batch_docs 内容无变化时跳过 demo (节省 API 调用).
     """
     from .task_manager import get_task_manager
     manager = get_task_manager()
@@ -291,11 +290,11 @@ def run_docs(gen_id: int, mid: str) -> dict[str, Any]:
         if manager.is_stale(mid, gen_id):
             results[kind] = {"triggered": False, "error": "stale_generation_superseded"}
             continue
-        r = _dispatch_kind(mid, kind, dry_run=False)
-        results[kind] = {"triggered": r.get("triggered"), "error": r.get("error")}
-        if kind == BATCH_DOCS_KIND and not r.get("content_changed", True):
-            results[DEMO_KIND] = {"triggered": False, "skipped": "docs_unchanged"}
-            break
+        try:
+            r = _dispatch_kind(mid, kind, dry_run=False)
+            results[kind] = {"triggered": r.get("triggered"), "error": r.get("error")}
+        except Exception as e:
+            results[kind] = {"triggered": False, "error": str(e)}
     return results
 
 
