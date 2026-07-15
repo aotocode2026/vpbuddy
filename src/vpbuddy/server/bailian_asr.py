@@ -207,13 +207,16 @@ class BailianCallback:
             return
         try:
             from ..storage import MeetingStorage
+            from ..state import MeetingState
             st = MeetingStorage(self._data_dir)
             mid = self._session.meeting_id
             if st.exists(mid):
                 state = st.load(mid)
-                state.cleaned_text = self._session.cleaned_accumulated_text or text
-                state.last_updated = datetime.now().isoformat()
-                st.save(state)
+            else:
+                state = MeetingState(meeting_id=mid)
+            state.cleaned_text = self._session.cleaned_accumulated_text or text
+            state.last_updated = datetime.now().isoformat()
+            st.save(state)
         except Exception as e:
             logger.error("[bailian_asr] _write_state failed: %s", e)
 
