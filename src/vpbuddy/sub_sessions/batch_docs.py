@@ -255,6 +255,7 @@ def trigger_batch_docs(
     any_written = any(f["written"] for f in result["files"].values())
     result["triggered"] = any_written
     result["any_written"] = any_written
+    result["content_changed"] = any_written
     result["elapsed_sec"] = time.time() - t0
     result["agent_path"] = "in-process"
 

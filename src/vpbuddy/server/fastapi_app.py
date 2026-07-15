@@ -1652,17 +1652,21 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
         # Phase 2: 启动百炼识别
         import asyncio as _asyncio
 
-        # v0.23.1: 事件驱动 — 每句转写完成直接调 task_manager.submit,
-        # 不再用轮询 (poll 到变化时可能已过 6s, 且空文本会误触空白文档).
+        # v0.23.1: 事件驱动 — 每句转写完成触发 task_manager.submit,
+        # 6s debounce 避免连续数十句每句都调 LLM 生成文档.
+        _last_submit_ts: dict[str, float] = {}
         def _on_state_changed(_mid: str):
-            print(f"[ws_realtime_asr] on_state_changed FIRE: {_mid}", flush=True)
+            import time as _time
+            _now = _time.time()
+            _prev = _last_submit_ts.get(_mid, 0)
+            if _now - _prev < 6:
+                return
+            _last_submit_ts[_mid] = _now
+            from ..task_manager import get_task_manager
+            from ..sub_session_controller import run_docs as _docs
             try:
-                from ..task_manager import get_task_manager
-                from ..sub_session_controller import run_docs as _docs
-                result = get_task_manager().submit(_mid, _docs)
-                print(f"[ws_realtime_asr] on_state_changed submit OK: {_mid}, task={result is not None}", flush=True)
+                get_task_manager().submit(_mid, _docs)
             except Exception as _e:
-                print(f"[ws_realtime_asr] on_state_changed FAIL: {_e}", flush=True)
                 _log.warning("[ws_realtime_asr] on_state_changed submit failed: %s", _e)
 
         session = start_session(
