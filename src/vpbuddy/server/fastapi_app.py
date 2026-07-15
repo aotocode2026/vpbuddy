@@ -1657,7 +1657,9 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
         # 不再用轮询 (poll 到变化时可能已过 6s, 且空文本会误触空白文档).
         def _on_state_changed(_mid: str):
             try:
-                get_task_manager().submit(_mid, _run_docs)
+                from ..task_manager import get_task_manager
+                from ..sub_session_controller import run_docs as _docs
+                get_task_manager().submit(_mid, _docs)
             except Exception as _e:
                 _log.warning("[ws_realtime_asr] on_state_changed submit failed: %s", _e)
 
