@@ -178,24 +178,24 @@ import logging as _logging_gkd
 from ..task_manager import get_task_manager as _get_tm_gkd
 from ..storage import MeetingStorage as _MS_gkd
 from ..sub_session_controller import run_docs as _run_docs
+from ..realtime_server import _subscribers as _gkd_subs, _subscribers_lock as _gkd_subs_lock
 
 _gkd_logger = _logging_gkd.getLogger("vpbuddy.gkd")
 _gkd_st = _MS_gkd(DATA_DIR)
 _gkd_last: dict[str, str] = {}
-_gkd_first = True
 
 def _gkd_loop():
-    global _gkd_first
-    print("[gkd] loop started", flush=True)
+    print("[gkd] loop started (active-meetings-only)", flush=True)
     _tm = _get_tm_gkd()
     while True:
         _time_gkd.sleep(6)
         try:
-            all_mids = _gkd_st.list_meetings()
-            recent = [m for m in all_mids if not m.endswith((".chat", ".stream"))]
-            if recent:
-                print(f"[gkd] scanning {len(recent)} meetings (of {len(all_mids)} total)", flush=True)
-            for mid in recent:
+            with _gkd_subs_lock:
+                active_mids = [m for m, subs in _gkd_subs.items() if subs]
+            if not active_mids:
+                continue
+            print(f"[gkd] scanning {len(active_mids)} active meetings", flush=True)
+            for mid in active_mids:
                 try:
                     state = _gkd_st.load(mid)
                 except Exception:
@@ -205,10 +205,9 @@ def _gkd_loop():
                     continue
                 cur_hash = _hashlib_gkd.md5(cur.encode()).hexdigest()
                 prev = _gkd_last.get(mid, "")
-                if cur_hash != prev or _gkd_first:
+                if cur_hash != prev:
                     _gkd_last[mid] = cur_hash
                     _tm.submit(mid, _run_docs)
-            _gkd_first = False
             # v0.22.5 #35 P2: 每轮扫描顺便清理孤儿 SSE subscriber
             try:
                 from ..realtime_server import cleanup_meetings_without_subscribers as _cu_gkd
