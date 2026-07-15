@@ -1656,11 +1656,14 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
         # v0.23.1: 事件驱动 — 每句转写完成直接调 task_manager.submit,
         # 不再用轮询 (poll 到变化时可能已过 6s, 且空文本会误触空白文档).
         def _on_state_changed(_mid: str):
+            print(f"[ws_realtime_asr] on_state_changed FIRE: {_mid}", flush=True)
             try:
                 from ..task_manager import get_task_manager
                 from ..sub_session_controller import run_docs as _docs
-                get_task_manager().submit(_mid, _docs)
+                result = get_task_manager().submit(_mid, _docs)
+                print(f"[ws_realtime_asr] on_state_changed submit OK: {_mid}, task={result is not None}", flush=True)
             except Exception as _e:
+                print(f"[ws_realtime_asr] on_state_changed FAIL: {_e}", flush=True)
                 _log.warning("[ws_realtime_asr] on_state_changed submit failed: %s", _e)
 
         session = start_session(

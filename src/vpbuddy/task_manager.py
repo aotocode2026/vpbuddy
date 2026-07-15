@@ -111,7 +111,7 @@ class DocTaskManager:
     - 自动清理结束会议的队列
     """
 
-    def __init__(self, max_workers: int = 4):
+    def __init__(self, max_workers: int = 8):
         self.executor = ThreadPoolExecutor(
             max_workers=max_workers,
             thread_name_prefix="doc-task",
@@ -195,7 +195,7 @@ class DocTaskManager:
 _doc_task_manager: DocTaskManager | None = None
 
 
-def get_task_manager(max_workers: int = 4) -> DocTaskManager:
+def get_task_manager(max_workers: int = 8) -> DocTaskManager:
     global _doc_task_manager
     if _doc_task_manager is None:
         _doc_task_manager = DocTaskManager(max_workers=max_workers)
