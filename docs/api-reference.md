@@ -1,6 +1,6 @@
 # VPBuddy HTTP API 参考
 
-> **版本**: v0.22.8 · `@ 2026-07-14`
+> **版本**: v0.23.1 · `@ 2026-07-16`
 > **Base URL**: `http://47.100.182.3:28765`（公网 GPU 服务器）
 > **协议**: HTTP/1.1 · WebSocket 实时 ASR · SSE 实时推送 · Multipart 上传
 > **编码**: 所有请求/响应使用 UTF-8
@@ -9,6 +9,14 @@
 > **会议隔离 (ADR-0050)**: 所有单会议端点 (state/docs/events/aggregate/collab/chat/close/materials) 仅 owner 可访问, 非 owner 返回 `403`
 > **百炼 ASR (ADR-0051)**: API Key 从 `DASHSCOPE_API_KEY` 环境变量读取, 仓库不存明文; 服务端**必须**通过 `bash run.sh` 启动以注入 key。
 > **⚠️ Breaking in v0.20**: `upload_audio`、`stream_chunk`、`stream_stop` 已移除，30s 切片模式已废弃，请使用 WebSocket 实时 ASR。
+>
+> **v0.23.1 关键变更 (事件驱动文档生成 — ADR-0057)**:
+> - **事件驱动文档生成**: bailian_asr 每句转写完成 → `on_state_changed` → `task_manager.submit`，不再依赖定时轮询
+> - **gkd daemon 收敛**: 仅扫描有活跃 SSE 订阅者的会议，不再进程重启时全量扫历史
+> - **_write_state 自动创建 MeetingState**: 新会议首句转写时自动创建 state.json，不再因为 `st.exists(mid)=False` 丢句子
+> - **WS 断连也触发文档生成**: finally 块调用 `task_manager.submit`，不再等用户重连
+> - **task_manager workers 4→8**: 避免拥挤
+> - **API 契约不变**: 所有 HTTP/WS/SSE 端点、请求/响应格式、事件类型均未变化
 >
 > **v0.22.7 关键变更**:
 > - **暂停 ≠ 结束 (ADR-0055)**: 客户端 `stop_capture` 新增 `close_meeting` 参数 — 暂停录音不再调用 `POST /close`，SSE 保持连接，前端不再误显示"未连接"
@@ -426,7 +434,8 @@ WS /api/meetings/{id}/realtime_asr
 **特点**:
 - 百炼 fun-asr-realtime 全程同一条 WebSocket 双工流，模型内部利用上文语音特征提升下文识别
 - 每句完成时自动写入 `MeetingState.cleaned_text`，**v0.21.3 变更**: 写入的是经过降噪过滤的 `cleaned_accumulated_text`（过滤填充词/设备测试短语/无意义重复），非原始累积文本
-- **v0.21.3 变更**: 文档调度改为 hash-based 检测有意义变更，debounce 6s（不再使用 15s 无条件首轮 + 30s 字符增量策略）
+- **v0.23.1 变更**: 文档生成从 hash 轮询改为**事件驱动** — 每句 `sentence_end` 回调 `on_state_changed` → `task_manager.submit`，无硬性时间约束
+- **v0.21.3 变更**: 文档调度改为 hash-based 检测有意义变更，debounce 6s（不再使用 15s 无条件首轮 + 30s 字符增量策略）— **v0.23.1 已重构为事件驱动**
 - **v0.21.3 变更**: 断线不误关会议，会议数据保留可用于后续重连
 - **v0.22.8 百炼重连**: 百炼 WS 长时间无有效语音会关闭 (idle timeout ~10-20s)，服务端检测到 `on_close` → 标记 `needs_reconnect` → 下次 `send_audio` 自动 `restart_session()` 重建 Recognition。客户端 WS **不断开**，SSE **不推** `recording-disconnected`。用户重新开始说话时 ASR 自动恢复。
 
@@ -533,7 +542,7 @@ GET /api/meetings/{id}/docs
 ```
 WebSocket ASR 连接建立
   → 每句完成 → 写入 MeetingState.cleaned_text
-  → gkd 守护线程每 6s 扫描, 非空 cleaned_text 变化时触发文档生成 (hash-based, 无字数阈值)
+  → on_state_changed 事件驱动 task_manager.submit 触发文档生成 (ADR-0057, v0.23.1)
      → batch_docs agent (5 文档, 1 次 LLM 调用)
      → demo agent (HTML 原型, 独立 session, 并行)
   → cleaned_text 有增量变化 → 自动重触发
@@ -982,6 +991,7 @@ GET /api/timeline
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v0.22.8 | 2026-07-14 | **百炼自动重连**: idle timeout → restart_session() 静默重建 + **WS/SSE 解耦**: 暂停录音不再关SSE，会议保持活跃 + **停止按钮即时响应**: JS先设状态再await + **meeting-complete不覆盖暂停** + **agent sandbox prompt铁律**: 禁读宿主用户名/环境变量 + **delete 完善清理** uploads/KB/agent-cache/experience + **experience exclude_meeting_id** 防自我引用 + **handle_chat_upload补scope** + **stream_start保留转录** + **chat/图片非阻塞** run_in_executor + **图片上传强制触发doc重生成** |
+| v0.23.1 | 2026-07-16 | **事件驱动文档生成 (ADR-0057)**: bailian_asr 句完成→`on_state_changed`→`task_manager.submit` + gkd仅扫活跃SSE + `_write_state`自动创建MeetingState + WS断连触发文档 + task_manager 4→8 workers |
 | v0.22.7 | 2026-07-13 | **暂停≠结束**: 客户端 `stop_capture({close_meeting: bool})` + `_close_meeting()` 120s 延迟兜底 + **chat历史注入子agent (ADR-0055)**: `format_state_summary()` 读 `{mid}.chat.json`，最近20条+完整路径暴露给batch_docs/demo |
 | v0.22.6 | 2026-07-12 | vision三层逃生通道 (ADR-0054): OpenAI兼容 → monkeypatch → mmx-cli VLM后备 + toolsets扩展 + KB search非阻塞 + .env自动加载 + gkd无阈值 + mmx-cli安装 + SSE增量恢复 + KB去重 |
 | v0.22.5 | 2026-07-12 | demo版本占位拒绝 (write_demo_version 拦截"等待更多会议内容") + gkd阈值 10→50字 + demo-new-version SSE链路完整 (Rust显式分支 + 前端自动刷新版本列表) |
