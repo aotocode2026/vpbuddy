@@ -214,10 +214,15 @@ def write_demo_version(
         if prev_hash and new_hash == prev_hash:
             manifest_list = load_manifest(meeting_id, docs_dir)
             prev_v = manifest_list[-1]["version"] if manifest_list else 0
+            prev_entry = manifest_list[-1] if manifest_list else {}
             return {
                 "ok": True,
                 "version": prev_v,
                 "skipped": "content_unchanged",
+                "summary": prev_entry.get("summary", ""),
+                "file_size": prev_entry.get("file_size", 0),
+                "file": prev_entry.get("file", ""),
+                "manifest": manifest_list,
             }
 
         # 1. 推进版本号
