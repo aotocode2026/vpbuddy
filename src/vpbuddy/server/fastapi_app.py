@@ -1630,7 +1630,6 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
     session = None
     format_str = "pcm"
     sample_rate = 16000
-    _doc_running = [False]
     _stop_received = False  # Issue #31: 区分主动停止 vs 断线
 
     try:
@@ -1653,6 +1652,15 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
 
         # Phase 2: 启动百炼识别
         import asyncio as _asyncio
+
+        # v0.23.1: 事件驱动 — 每句转写完成直接调 task_manager.submit,
+        # 不再用轮询 (poll 到变化时可能已过 6s, 且空文本会误触空白文档).
+        def _on_state_changed(_mid: str):
+            try:
+                get_task_manager().submit(_mid, _run_docs)
+            except Exception as _e:
+                _log.warning("[ws_realtime_asr] on_state_changed submit failed: %s", _e)
+
         session = start_session(
             loop=_asyncio.get_running_loop(),
             meeting_id=meeting_id,
@@ -1660,40 +1668,9 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
             sample_rate=sample_rate,
             fmt=format_str,
             data_dir=DATA_DIR,
+            on_state_changed=_on_state_changed,
         )
         print(f"[ws_realtime_asr] bailian session created: {meeting_id}", flush=True)
-
-        # 启动自驱动文档 generator: asyncio 定时轮询 ASR 文本, 有增量就提交
-
-        _doc_last_hash = [""]
-        _doc_running[0] = True
-
-        # Issue #31: 自驱动文档调度 — hash-based 检测有意义变更, debounce 6s
-        async def _kick_docs():
-            import hashlib
-            try:
-                from ..storage import MeetingStorage
-                st = MeetingStorage(DATA_DIR)
-                debounce = 6
-                await _asyncio.sleep(1)
-                while _doc_running[0]:
-                    if st.exists(meeting_id):
-                        state = st.load(meeting_id)
-                        cur = state.cleaned_text if state.cleaned_text else ""
-                        if not cur.strip():
-                            await _asyncio.sleep(debounce)
-                            continue
-                        cur_hash = hashlib.md5(cur.encode()).hexdigest()
-                        if cur_hash != _doc_last_hash[0]:
-                            _doc_last_hash[0] = cur_hash
-                            _log.info("[_kick_docs] meaningful change detected, len=%d hash=%s", len(cur), cur_hash[:8])
-                            get_task_manager().submit(meeting_id, _run_docs)
-                    await _asyncio.sleep(debounce)
-            except Exception:
-                import logging
-                logging.getLogger(__name__).warning("non-critical error in doc kick loop", exc_info=True)
-
-        _asyncio.create_task(_kick_docs())
 
         # Phase 3: relay — 音频帧 → 百炼, 同时监听 stop
         from starlette.websockets import WebSocketState
@@ -1753,7 +1730,6 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
             import logging
             logging.getLogger(__name__).warning("non-critical error sending error via websocket", exc_info=True)
     finally:
-        _doc_running[0] = False
         if session:
             stop_session(session)
             _log.info("[ws_realtime_asr] session stopped, meeting=%s sentences=%d noise=%d",

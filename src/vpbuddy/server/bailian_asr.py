@@ -124,11 +124,12 @@ class BailianCallback:
     每完成一句, 同时写入 MeetingStorage 以便文档生成 agent 读取.
     """
 
-    def __init__(self, loop, send_json: Callable, session: _ASRSession, data_dir: str = ""):
+    def __init__(self, loop, send_json: Callable, session: _ASRSession, data_dir: str = "", on_state_changed=None):
         self._loop = loop
         self._send = send_json
         self._session = session
         self._data_dir = data_dir
+        self._on_state_changed = on_state_changed
 
     def _safe_send(self, msg: dict) -> None:
         try:
@@ -194,6 +195,11 @@ class BailianCallback:
             tag = " [NOISE]" if is_noise else ""
             self._write_state(cleaned, self._session.sentence_count)
             logger.info("[bailian_asr] sentence #%d%s: %s", self._session.sentence_count, tag, text[:80])
+            if self._on_state_changed is not None:
+                try:
+                    self._on_state_changed(self._session.meeting_id)
+                except Exception as _e:
+                    logger.warning("[bailian_asr] on_state_changed failed: %s", _e)
 
     def _write_state(self, text: str, idx: int) -> None:
         """追加清理后文本到 MeetingStorage (Issue #31: 写 cleaned_accumulated_text)."""
@@ -224,6 +230,7 @@ def start_session(
     sample_rate: int = 16000,
     fmt: str = "pcm",
     data_dir: str = "",
+    on_state_changed=None,
 ) -> _ASRSession:
     """启动一个百炼实时 ASR 会话."""
     import uuid
@@ -238,7 +245,7 @@ def start_session(
 
     from dashscope.audio.asr import Recognition
 
-    callback = BailianCallback(loop, send_json, session, data_dir=data_dir)
+    callback = BailianCallback(loop, send_json, session, data_dir=data_dir, on_state_changed=on_state_changed)
     session.callback = callback
 
     recognition = Recognition(
