@@ -10,7 +10,7 @@
 - 后台 monitor 线程启动/停止 (smoke)
 
 chat 上传覆盖:
-- handle_chat_upload 文本类入 KB
+- handle_chat_upload 文本类只落盘 (v0.23.1: 不入 KB)
 - handle_chat_upload 图片转 base64 data URI
 - _parse_multipart 升级支持多文件
 - _handle_chat multipart 分支 (smoke, 不调 LLM)
@@ -436,11 +436,9 @@ def test_handle_chat_upload_text_files_to_kb(tmp_path, monkeypatch):
     result = handle_chat_upload(body, ct, "chat_upload_mtg")
     assert result["status"] == 200
     assert result["text"] == "hello question"
-    assert len(result["kb_doc_ids"]) == 1
+    assert result["kb_doc_ids"] == [], "v0.23.1: chat 上传不入 KB"
     assert result["image_count"] == 0
-    # 入库的内容含 doc.md 的字符
-    assert len(fake.added) == 1
-    assert "key doc content" in fake.added[0]["documents"][0][:100]
+    assert len(fake.added) == 0, "v0.23.1: chat 文本不入 KB"
 
 
 def test_handle_chat_upload_image_to_b64(tmp_path, monkeypatch):
@@ -513,7 +511,7 @@ def test_handle_chat_upload_mixed_files(tmp_path, monkeypatch):
     result = handle_chat_upload(body, ct, "mixed_mtg")
     assert result["status"] == 200
     statuses = [f["status"] for f in result["files"]]
-    assert "kb-stored" in statuses
+    assert "stored" in statuses, f"v0.23.1: 期望 'stored' (只落盘)，实际 {statuses}"
     assert "image" in statuses
     assert "rejected" in statuses
 

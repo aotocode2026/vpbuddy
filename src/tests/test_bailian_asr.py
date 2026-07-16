@@ -180,13 +180,16 @@ class TestWriteState:
         cb._write_state("test。", 1)
         assert sess.accumulated_text == "test。"
 
-    def test_nonexistent_meeting_noop(self, fake_loop, capture_msgs, tmp_storage):
+    def test_nonexistent_meeting_auto_creates(self, fake_loop, capture_msgs, tmp_storage):
+        """v0.23.1: 新会议不存在时自动创建 MeetingState，不再 noop."""
         msgs, send = capture_msgs
-        sess = _ASRSession(meeting_id="ghost")
-        sess.add_sentence("孤魂野鬼。", "孤魂野鬼。")
+        sess = _ASRSession(meeting_id="ghost_v0231")
+        sess.add_sentence("新会议第一句。", "新会议第一句。")
         cb = BailianCallback(fake_loop, send, sess, data_dir=str(tmp_storage.data_dir))
-        cb._write_state("孤魂野鬼。", 1)
-        assert not tmp_storage.exists("ghost")
+        cb._write_state("新会议第一句。", 1)
+        assert tmp_storage.exists("ghost_v0231"), "v0.23.1: _write_state 应自动创建 MeetingState"
+        loaded = tmp_storage.load("ghost_v0231")
+        assert loaded.cleaned_text == "新会议第一句。"
 
     def test_exception_does_not_crash(self, fake_loop, capture_msgs, tmp_storage):
         msgs, send = capture_msgs
