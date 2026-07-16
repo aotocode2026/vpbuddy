@@ -18,6 +18,7 @@
 > - **task_manager workers 4→8**: 避免拥挤
 > - **API 契约不变**: 所有 HTTP/WS/SSE 端点、请求/响应格式、事件类型均未变化
 > - **chat 上传不入 KB**: 从 chat 页签上传的文件 (.txt/.md/.pdf/图片) 只落盘 `uploads/{mid}/`，不再自动写入知识库 (Chroma)
+> - **prompt 纠正**: batch_docs.md 去 KB 误导 → `read_file` 读 uploads；VP Chat system prompt "6 个" → "2 个自动子 agent" (batch_docs + demo)
 >
 > **v0.22.7 关键变更**:
 > - **暂停 ≠ 结束 (ADR-0055)**: 客户端 `stop_capture` 新增 `close_meeting` 参数 — 暂停录音不再调用 `POST /close`，SSE 保持连接，前端不再误显示"未连接"
@@ -992,7 +993,7 @@ GET /api/timeline
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v0.22.8 | 2026-07-14 | **百炼自动重连**: idle timeout → restart_session() 静默重建 + **WS/SSE 解耦**: 暂停录音不再关SSE，会议保持活跃 + **停止按钮即时响应**: JS先设状态再await + **meeting-complete不覆盖暂停** + **agent sandbox prompt铁律**: 禁读宿主用户名/环境变量 + **delete 完善清理** uploads/KB/agent-cache/experience + **experience exclude_meeting_id** 防自我引用 + **handle_chat_upload补scope** + **stream_start保留转录** + **chat/图片非阻塞** run_in_executor + **图片上传强制触发doc重生成** |
-| v0.23.1 | 2026-07-16 | **事件驱动文档生成 (ADR-0057)**: bailian_asr 句完成→`on_state_changed`→`task_manager.submit` + gkd仅扫活跃SSE + `_write_state`自动创建MeetingState + WS断连触发文档 + task_manager 4→8 workers + **chat上传不入KB**: 文件/图片只落盘 `uploads/{mid}/`，不自动写入Chroma |
+| v0.23.1 | 2026-07-16 | **事件驱动文档生成 (ADR-0057)**: bailian_asr 句完成→`on_state_changed`→`task_manager.submit` + gkd仅扫活跃SSE + `_write_state`自动创建MeetingState + WS断连触发文档 + task_manager 4→8 workers + **chat上传不入KB**: 文件/图片只落盘 `uploads/{mid}/` + **prompt纠正**: batch_docs.md KB→read_file + VP Chat 6→2子agent |
 | v0.22.7 | 2026-07-13 | **暂停≠结束**: 客户端 `stop_capture({close_meeting: bool})` + `_close_meeting()` 120s 延迟兜底 + **chat历史注入子agent (ADR-0055)**: `format_state_summary()` 读 `{mid}.chat.json`，最近20条+完整路径暴露给batch_docs/demo |
 | v0.22.6 | 2026-07-12 | vision三层逃生通道 (ADR-0054): OpenAI兼容 → monkeypatch → mmx-cli VLM后备 + toolsets扩展 + KB search非阻塞 + .env自动加载 + gkd无阈值 + mmx-cli安装 + SSE增量恢复 + KB去重 |
 | v0.22.5 | 2026-07-12 | demo版本占位拒绝 (write_demo_version 拦截"等待更多会议内容") + gkd阈值 10→50字 + demo-new-version SSE链路完整 (Rust显式分支 + 前端自动刷新版本列表) |
