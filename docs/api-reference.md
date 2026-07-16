@@ -17,6 +17,7 @@
 > - **WS 断连也触发文档生成**: finally 块调用 `task_manager.submit`，不再等用户重连
 > - **task_manager workers 4→8**: 避免拥挤
 > - **API 契约不变**: 所有 HTTP/WS/SSE 端点、请求/响应格式、事件类型均未变化
+> - **chat 上传不入 KB**: 从 chat 页签上传的文件 (.txt/.md/.pdf/图片) 只落盘 `uploads/{mid}/`，不再自动写入知识库 (Chroma)
 >
 > **v0.22.7 关键变更**:
 > - **暂停 ≠ 结束 (ADR-0055)**: 客户端 `stop_capture` 新增 `close_meeting` 参数 — 暂停录音不再调用 `POST /close`，SSE 保持连接，前端不再误显示"未连接"
@@ -30,7 +31,7 @@
 > - **agent sandbox 强化 (prompt 铁律)**: demo/batch_docs/single-agent 三处 prompt 新增——严禁读取/提及服务器文件系统路径、主机用户名(/home/xxx)、环境变量；禁止用终端工具探索系统(whoami/uname/hostname/等)；种子/示例数据禁用可能泄露身份的信息，只用中性占位符
 > - **`DELETE /api/meetings/{id}` 资源清理完善**: 新增清理 uploads 目录、KB Chroma 记录、`_AGENT_CACHE`/`_CHAT_AGENT_CACHE`/`_CLEAN_AGENT_CACHE`、experience 候选文件；返回 `deleted` 对象增加 `uploads`/`kb`/`agents`/`experiences` 字段
 > - **Experience 自排除**: `search_experiences()` 新增 `exclude_meeting_id` 参数，batch_docs 调用时排除当前会议自身经验，防止自我循环引用
-> - **`handle_chat_upload` KB metadata 补全**: 补 `scope=meeting_material`、`labels`、`meeting_callable` 字段，与 `handle_kb_upload` 保持一致
+> - **`handle_chat_upload`**: 文件落盘 `uploads/{mid}/`，不再写入 Chroma KB (v0.23.1)
 > - **`stream_start` reuse 保留转录**: 断线重连时不再重置 `transcript_segments`，保留之前的转写记录
 > - **图片上传/chat 非阻塞化**: `handle_chat_upload` + `_run_vp_chat` 通过 `await loop.run_in_executor()` 在线程池中执行，不阻塞 event loop，WS ASR 持续收音频帧
 > - **图片上传后强制触发文档重生成**: `post_chat` 图片路径非空时通过 `task_manager.submit()` 提交 BATCH_DOCS_KIND + DEMO_KIND
@@ -46,7 +47,7 @@
 > - `doc-update` SSE 不再推送 `content` 字段（只推元信息 `{kind, status, doc_size}`）
 > - SSE 重连支持增量恢复（读取客户端 `Last-Event-ID` header/query）
 > - Chat 文件上传不塞内容只放路径（agent 用 `read_file` 按需读取）
-> - 图片上传 → OpenAI vision API 异步分析 → mmx-cli 备份 → 结果追加到 chat 并入库 KB
+> - 图片上传 → vision API 异步分析 → 结果追加到 chat，**不入 KB** (v0.23.1)
 > - KB 去重按 `user_id` 隔离（`content_hash` 查询加 `user_id` 过滤）
 
 ---
@@ -601,7 +602,7 @@ POST /api/meetings/{id}/chat
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | text | string | 对话文本 (可选) |
-| files | file[] | 文件 (文本入 KB, 图片转 base64) |
+| files | file[] | 文件 (只落盘 uploads/{mid}/, **不入 KB**, v0.23.1) |
 
 ### 6.1.1 Chat 与子 Agent 上下文 (v0.22.7, ADR-0055)
 
@@ -737,7 +738,7 @@ POST /api/meetings/{id}/materials
   → 主路径: OpenAI /chat/completions (DashScope qwen-vl-max)
   → 后备 1 (monkeypatch): resolve_runtime_provider 注入 → _create_openai_client(DashScope)
   → 后备 2 (mmx-cli): mmx vision describe (MiniMax 原生 VLM, 不经过 Hermes)
-  → 结果追加到 chat (source: "vision-analysis") + 以文本形式入库 KB
+  → 结果追加到 chat (source: "vision-analysis") (v0.23.1: 不入 KB)
 ```
 
 | 通道 | 技术 | 触发条件 |
@@ -991,7 +992,7 @@ GET /api/timeline
 | 版本 | 日期 | 变更 |
 |------|------|------|
 | v0.22.8 | 2026-07-14 | **百炼自动重连**: idle timeout → restart_session() 静默重建 + **WS/SSE 解耦**: 暂停录音不再关SSE，会议保持活跃 + **停止按钮即时响应**: JS先设状态再await + **meeting-complete不覆盖暂停** + **agent sandbox prompt铁律**: 禁读宿主用户名/环境变量 + **delete 完善清理** uploads/KB/agent-cache/experience + **experience exclude_meeting_id** 防自我引用 + **handle_chat_upload补scope** + **stream_start保留转录** + **chat/图片非阻塞** run_in_executor + **图片上传强制触发doc重生成** |
-| v0.23.1 | 2026-07-16 | **事件驱动文档生成 (ADR-0057)**: bailian_asr 句完成→`on_state_changed`→`task_manager.submit` + gkd仅扫活跃SSE + `_write_state`自动创建MeetingState + WS断连触发文档 + task_manager 4→8 workers |
+| v0.23.1 | 2026-07-16 | **事件驱动文档生成 (ADR-0057)**: bailian_asr 句完成→`on_state_changed`→`task_manager.submit` + gkd仅扫活跃SSE + `_write_state`自动创建MeetingState + WS断连触发文档 + task_manager 4→8 workers + **chat上传不入KB**: 文件/图片只落盘 `uploads/{mid}/`，不自动写入Chroma |
 | v0.22.7 | 2026-07-13 | **暂停≠结束**: 客户端 `stop_capture({close_meeting: bool})` + `_close_meeting()` 120s 延迟兜底 + **chat历史注入子agent (ADR-0055)**: `format_state_summary()` 读 `{mid}.chat.json`，最近20条+完整路径暴露给batch_docs/demo |
 | v0.22.6 | 2026-07-12 | vision三层逃生通道 (ADR-0054): OpenAI兼容 → monkeypatch → mmx-cli VLM后备 + toolsets扩展 + KB search非阻塞 + .env自动加载 + gkd无阈值 + mmx-cli安装 + SSE增量恢复 + KB去重 |
 | v0.22.5 | 2026-07-12 | demo版本占位拒绝 (write_demo_version 拦截"等待更多会议内容") + gkd阈值 10→50字 + demo-new-version SSE链路完整 (Rust显式分支 + 前端自动刷新版本列表) |
