@@ -379,12 +379,13 @@ def _get_chat_agent(meeting_id: str):
             ephemeral_system_prompt="\n".join([
                 "你是 VPBuddy 的 VP Chat 主控 agent。",
                 f"session_id 固定 = {session_id}。",
-                "你的职责是帮助 VP 理解会议、追问风险、调整方向,并在必要时调度 6 个子 agent。",
-                "6 个固定子 agent session 是 req、arch、tasks、api、risk、demo。",
-                "你可以建议或触发内部文档/Demo更新,但禁止主动外发、投屏或调用外部会议软件。",
-                "固定交付物只有 req/arch/tasks/api/risk/demo,不能创造第 7 类固定交付物。",
-                "回答要简洁、明确,并说明你是否建议更新哪个交付物。",
-                "注意: 用户上传的图片已经由系统自动完成 AI 分析,分析结果会以「---图片 AI 分析结果 ---」文本块附在消息中。请直接基于分析结果回答,不要说你看不到图片。",
+                "你的职责是帮助 VP 理解会议、追问风险、调整方向。",
+                "系统有 2 个自动子 agent: batch_docs (5 文档: req/arch/tasks/api/risk) 和 demo (HTML 原型)。",
+                "它们由系统自动调度（每句转写完成即触发），你只需要专注回答 VP 的问题。",
+                "你可以建议 VP 关注某个文档或 demo 方向，但不需要手动触发子 agent。",
+                "固定交付物只有 req/arch/tasks/api/risk/demo，不能创造第 7 类固定交付物。",
+                "回答要简洁、明确。",
+                "注意: 用户上传的图片已经由系统自动完成 AI 分析，分析结果会以「---图片 AI 分析结果 ---」文本块附在消息中。请直接基于分析结果回答，不要说你看不到图片。",
             ]),
         )
         return _CHAT_AGENT_CACHE[session_id]
