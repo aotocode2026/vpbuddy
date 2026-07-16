@@ -242,10 +242,9 @@ def handle_chat_upload(body: bytes, content_type: str, meeting_id: str, user_id:
     """POST /api/meetings/{id}/chat (multipart) — chat 多文件上传 (ADR-0023).
 
     行为:
-      - 文件 (.txt/.md/.pdf) → 抽文本 + 入 KB (Chroma)
-      - 图片 (.png/.jpg/.gif/.webp) → 转 base64 data URI, 不入 KB, 走 LLM vision
-      - 返回每文件处理结果 (status/filename/error), chat agent 拿到 images 列表后
-        在 ollama /api/chat 调用里喂给 LLM.
+      - 文件 (.txt/.md/.pdf) → 抽文本 + 落盘 uploads/ (v0.23.1: 不入 KB)
+      - 图片 (.png/.jpg/.gif/.webp) → 转 base64 + 落盘 uploads/ + vision API 分析, 不入 KB
+      - 返回每文件处理结果, chat agent 拿到文件路径后按需 read_file.
 
     multipart/form-data:
         text: str (可选, 用户问的文本)
@@ -334,49 +333,19 @@ def handle_chat_upload(body: bytes, content_type: str, meeting_id: str, user_id:
             except ValueError as e:
                 results.append({"filename": fname, "status": "rejected", "error": str(e)})
         else:
-            # 文本类 → 入 KB
+            # 文本类 → 只落盘, 不入 KB (v0.23.1: chat 上传不进知识库)
             try:
                 content = _extract_text(data, fname)
                 if not content.strip():
                     results.append({"filename": fname, "status": "empty"})
                     continue
-                content_md5 = hashlib.md5(content.encode()).hexdigest()
-                rag = get_rag()
-
-                # 检查是否已有相同内容的文档 (v0.22.6: 加 user_id 过滤)
-                existing = rag.get(where={"$and": [{"content_hash": content_md5}, {"user_id": user_id}]}, limit=1)
-                if existing.get("ids") and existing.get("metadatas"):
-                    results.append({"filename": fname, "status": "duplicate", "doc_id": existing["ids"][0], "chars": len(content)})
-                    continue
-
                 file_uuid = uuid.uuid4().hex[:12]
-                doc_id = f"{meeting_id}:chat-upload:{file_uuid}"
-                now = datetime.now(UTC).isoformat()
-                # 原始文件持久化到 uploads 目录（供 Chat prompt 直接读取路径）
                 upload_dir = UPLOADS_DIR / meeting_id
                 upload_dir.mkdir(parents=True, exist_ok=True)
                 raw_path = upload_dir / f"{file_uuid}_{fname}"
                 raw_path.write_bytes(data)
-                rag.add(
-                    ids=[doc_id],
-                    documents=[content],
-                    metadatas=[{
-                        "user_id": user_id,
-                        "meeting_id": meeting_id,
-                        "source": f"chat-upload:{fname}",
-                        "uploaded_at": now,
-                        "chunk_index": 0,
-                        "file_size": len(data),
-                        "file_ext": Path(fname).suffix.lower().lstrip("."),
-                        "content_hash": content_md5,
-                        "scope": "meeting_material",
-                        "labels": "",
-                        "meeting_callable": "true",
-                    }],
-                )
-                kb_doc_ids.append(doc_id)
-                results.append({"filename": fname, "status": "kb-stored", "doc_id": doc_id, "chars": len(content)})
-                logger.info("chat upload: meeting=%s file=%s doc_id=%s chars=%d", meeting_id, fname, doc_id, len(content))
+                results.append({"filename": fname, "status": "stored", "path": str(raw_path), "chars": len(content)})
+                logger.info("chat upload: meeting=%s file=%s stored=%s chars=%d", meeting_id, fname, str(raw_path), len(content))
             except Exception as e:
                 logger.exception("chat upload failed: %s", fname)
                 results.append({"filename": fname, "status": "error", "error": str(e)})
