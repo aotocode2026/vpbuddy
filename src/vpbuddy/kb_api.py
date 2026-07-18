@@ -26,6 +26,17 @@ from .rag_backend import DATA_DIR, get_rag
 
 logger = logging.getLogger(__name__)
 
+# ── 安全工具 ──
+
+
+def _safe_filename(filename: str) -> str:
+    """去除路径成分，只保留纯文件名 (防止路径遍历)。"""
+    safe = Path(filename).name
+    if not safe or safe in (".", ".."):
+        raise ValueError(f"非法文件名: {filename!r}")
+    return safe
+
+
 # ── 配置 ──
 UPLOADS_DIR = DATA_DIR / "uploads"
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
@@ -169,9 +180,10 @@ def handle_kb_upload(body: bytes, content_type: str, user_id: str = "") -> dict:
 
     # 保存原始文件
     file_uuid = uuid.uuid4().hex[:12]
+    safe_name = _safe_filename(filename)
     upload_dir = UPLOADS_DIR / meeting_id
     upload_dir.mkdir(parents=True, exist_ok=True)
-    raw_path = upload_dir / f"{file_uuid}_{filename}"
+    raw_path = upload_dir / f"{file_uuid}_{safe_name}"
     raw_path.write_bytes(file_bytes)
 
     # 抽取文本
@@ -192,12 +204,12 @@ def handle_kb_upload(body: bytes, content_type: str, user_id: str = "") -> dict:
     if existing.get("ids") and existing.get("metadatas"):
         dup_meta = existing["metadatas"][0] if existing["metadatas"] else {}
         if dup_meta.get("user_id") == user_id:
-            logger.info("KB upload: dup skip meeting=%s file=%s hash=%s", meeting_id, filename, content_md5[:8])
+            logger.info("KB upload: dup skip meeting=%s file=%s hash=%s", meeting_id, safe_name, content_md5[:8])
         return {
             "status": 200,
             "doc_id": existing["ids"][0],
             "meeting_id": meeting_id,
-            "filename": filename,
+            "filename": safe_name,
             "chunks": 1,
             "char_count": len(text),
             "duplicate": True,
@@ -211,11 +223,11 @@ def handle_kb_upload(body: bytes, content_type: str, user_id: str = "") -> dict:
         metadatas=[{
             "user_id": user_id,
             "meeting_id": meeting_id,
-            "source": f"upload:{filename}",
+            "source": f"upload:{safe_name}",
             "uploaded_at": now,
             "chunk_index": 0,
             "file_size": len(file_bytes),
-            "file_ext": Path(filename).suffix.lower().lstrip("."),
+            "file_ext": Path(safe_name).suffix.lower().lstrip("."),
             "content_hash": content_md5,
             "scope": scope,
             "labels": labels,
@@ -223,13 +235,13 @@ def handle_kb_upload(body: bytes, content_type: str, user_id: str = "") -> dict:
         }],
     )
 
-    logger.info("KB uploaded: meeting=%s file=%s doc_id=%s size=%d scope=%s", meeting_id, filename, doc_id, len(file_bytes), scope)
+    logger.info("KB uploaded: meeting=%s file=%s doc_id=%s size=%d scope=%s", meeting_id, safe_name, doc_id, len(file_bytes), scope)
 
     return {
         "status": 200,
         "doc_id": doc_id,
         "meeting_id": meeting_id,
-        "filename": filename,
+        "filename": safe_name,
         "chunks": 1,
         "char_count": len(text),
         "scope": scope,
@@ -276,6 +288,13 @@ def handle_chat_upload(body: bytes, content_type: str, meeting_id: str, user_id:
             results.append({"filename": fname, "status": "rejected", "error": str(e)})
             continue
 
+        # 安全: 只取文件名，丢弃目录成分 (BE-092)
+        try:
+            safe_fname = _safe_filename(fname)
+        except ValueError:
+            results.append({"filename": fname, "status": "rejected", "error": "非法文件名"})
+            continue
+
         if _is_image(fname):
             # 图片 → base64 + 写盘
             try:
@@ -284,7 +303,7 @@ def handle_chat_upload(body: bytes, content_type: str, meeting_id: str, user_id:
                 file_uuid = uuid.uuid4().hex[:12]
                 upload_dir = UPLOADS_DIR / meeting_id
                 upload_dir.mkdir(parents=True, exist_ok=True)
-                raw_path = upload_dir / f"{file_uuid}_{fname}"
+                raw_path = upload_dir / f"{file_uuid}_{safe_fname}"
                 raw_path.write_bytes(data)
 
                 # v0.22.9: 上传后立即调用 DashScope 视觉模型分析图片，
@@ -342,7 +361,7 @@ def handle_chat_upload(body: bytes, content_type: str, meeting_id: str, user_id:
                 file_uuid = uuid.uuid4().hex[:12]
                 upload_dir = UPLOADS_DIR / meeting_id
                 upload_dir.mkdir(parents=True, exist_ok=True)
-                raw_path = upload_dir / f"{file_uuid}_{fname}"
+                raw_path = upload_dir / f"{file_uuid}_{safe_fname}"
                 raw_path.write_bytes(data)
                 results.append({"filename": fname, "status": "stored", "path": str(raw_path), "chars": len(content)})
                 logger.info("chat upload: meeting=%s file=%s stored=%s chars=%d", meeting_id, fname, str(raw_path), len(content))
@@ -418,7 +437,7 @@ def handle_kb_list(params: dict[str, list[str]], user_id: str = "") -> dict:
 
 
 def handle_kb_delete(path: str, user_id: str = "") -> dict:
-    """DELETE /api/kb/{doc_id} — 删除 KB 文档 (需归属校验)."""
+    """DELETE /api/kb/{doc_id} — 删除 KB 文档 (需归属校验, fail-closed)."""
     doc_id = path.split("/")[-1]
     if not doc_id:
         return {"error": "doc_id 必填", "status": 400}
@@ -430,10 +449,18 @@ def handle_kb_delete(path: str, user_id: str = "") -> dict:
             if results and results.get("metadatas") and results["metadatas"][0]:
                 meta = results["metadatas"][0]
                 owner = meta.get("user_id", "")
-                if owner and owner != user_id:
+                if not owner:
+                    # 无 owner 记录，拒绝删除 (fail-closed BE-098)
+                    return {"error": "cannot verify KB document ownership", "status": 403}
+                if owner != user_id:
                     return {"error": "access denied: not the owner of this KB document", "status": 403}
+            else:
+                # 文档不存在或无 metadata，拒绝删除
+                return {"error": "KB document not found or metadata missing", "status": 404}
         except Exception as e:
-            logger.warning("KB delete: 无法校验归属 (继续删除): %s", e)
+            # 无法校验归属时拒绝删除 (fail-closed BE-098)
+            logger.error("KB delete: ownership check failed for doc_id=%s: %s", doc_id, e)
+            return {"error": "KB delete failed: cannot verify ownership", "status": 500}
 
     rag.delete([doc_id])
     logger.info("KB deleted: doc_id=%s user=%s", doc_id, user_id)

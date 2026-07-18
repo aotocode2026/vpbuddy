@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -21,6 +22,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # 目录基址由外部 set_data_dir() 设置，默认 None
 _MATERIALS_BASE: Path | None = None
@@ -155,17 +158,22 @@ def store_file(
     material_id = f"mat_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc).isoformat()
 
+    # 安全: 只取文件名，丢弃所有目录成分 (防止路径遍历 BE-079)
+    safe_filename = Path(filename).name
+    if not safe_filename or safe_filename in (".", ".."):
+        raise ValueError(f"非法文件名: {filename!r}")
+
     mat_dir = _base() / meeting_id / material_id
     mat_dir.mkdir(parents=True, exist_ok=True)
 
     # 写原始文件
-    file_path = mat_dir / filename
+    file_path = mat_dir / safe_filename
     file_path.write_bytes(file_bytes)
 
     meta = MaterialMeta(
         material_id=material_id,
         meeting_id=meeting_id,
-        filename=filename,
+        filename=safe_filename,
         content_type=content_type,
         size=len(file_bytes),
         created_at=now,
@@ -247,6 +255,15 @@ def get_file_path(material_id: str) -> Path | None:
         mat_dir = meeting_dir / material_id
         if mat_dir.is_dir():
             fp = mat_dir / meta.filename
+            # 安全: 校验解析后的真实路径仍在 mat_dir 内 (BE-083)
+            try:
+                resolved = fp.resolve()
+                mat_dir_resolved = mat_dir.resolve()
+                if not str(resolved).startswith(str(mat_dir_resolved) + os.sep) and resolved != mat_dir_resolved:
+                    logger.warning("material path escape blocked: %s → %s", meta.filename, resolved)
+                    return None
+            except (OSError, ValueError):
+                return None
             if fp.exists():
                 return fp
     return None
