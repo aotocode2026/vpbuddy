@@ -158,7 +158,17 @@ class BailianCallback:
         })
 
     def on_error(self, result) -> None:
-        msg = str(getattr(result, "message", result))
+        # RecognitionResult.__str__() 有 bug（dashscope SDK 中 call from_api_response 时
+        # RecognitionResult 无 headers 属性会抛 AttributeError → 崩掉 receive worker 线程）。
+        # 安全提取错误消息: 优先 response.message, 其次 message, 兜底 repr。
+        try:
+            resp = getattr(result, "response", None)
+            if resp is not None:
+                msg = str(getattr(resp, "message", resp))
+            else:
+                msg = str(getattr(result, "message", result))
+        except Exception:
+            msg = repr(result)
         logger.error("[bailian_asr] error meeting=%s: %s", self._session.meeting_id, msg)
         self._safe_send({"type": "asr_error", "error": msg})
 

@@ -21,11 +21,11 @@ from typing import Optional, List
 import pytest
 
 
-# === Gate:必须有 RUN_E2E=1 才跑 ===
-pytestmark = pytest.mark.skipif(
-    os.environ.get("RUN_E2E") != "1",
-    reason="E2E 集成测试(慢,需真实音频/ASR/KB),用 RUN_E2E=1 显式触发",
-)
+# === DEPRECATED 2026-07-18 ===
+# 此文件已废弃 — 旧 E2E 测试 import vpbuddy 内部模块 (loopback, sub_session_controller 等),
+# 不是纯 HTTP 测试, 无法从本地测试远程服务端。
+# 新 HTTP-only E2E 测试见: src/tests/test_e2e_http.py (RUN_E2E=1 触发)
+pytestmark = pytest.mark.skip(reason="DEPRECATED — 改用 test_e2e_http.py (HTTP-only)")
 
 
 # === 路径配置(与 VPBuddy 默认一致) ===
