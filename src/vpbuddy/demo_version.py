@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import tempfile
+import threading
 from datetime import datetime, timezone
 
 UTC = timezone.utc
@@ -33,6 +34,18 @@ from pathlib import Path
 from .ui_server import DOCS_DIR
 
 logger = logging.getLogger(__name__)
+
+
+# ── Publish lock per meeting (v0.23.2, #44 principle 5: single-writer per artifact) ──
+_publish_locks: dict[str, threading.Lock] = {}
+_publish_locks_guard = threading.Lock()
+
+
+def _get_publish_lock(meeting_id: str) -> threading.Lock:
+    with _publish_locks_guard:
+        if meeting_id not in _publish_locks:
+            _publish_locks[meeting_id] = threading.Lock()
+        return _publish_locks[meeting_id]
 
 
 # ── 路径辅助 ──
@@ -225,29 +238,48 @@ def write_demo_version(
                 "manifest": manifest_list,
             }
 
-        # 1. 推进版本号
-        v = next_version(meeting_id, docs_dir)
+        # v0.23.2: publish lock — single writer per meeting:artifact (issue #44 principle 5)
+        with _get_publish_lock(meeting_id):
 
-        # 2. 写文件
-        out = _version_path(meeting_id, v, docs_dir)
-        out.write_text(html, encoding="utf-8")
+            # Recheck dedup under lock (防止锁外 TOCTOU)
+            prev_hash2 = latest_demo_content_hash(meeting_id, docs_dir)
+            if prev_hash2 and new_hash == prev_hash2:
+                manifest_list = load_manifest(meeting_id, docs_dir)
+                prev_v2 = manifest_list[-1]["version"] if manifest_list else 0
+                prev_entry2 = manifest_list[-1] if manifest_list else {}
+                return {
+                    "ok": True,
+                    "version": prev_v2,
+                    "skipped": "content_unchanged",
+                    "summary": prev_entry2.get("summary", ""),
+                    "file_size": prev_entry2.get("file_size", 0),
+                    "file": prev_entry2.get("file", ""),
+                    "manifest": manifest_list,
+                }
 
-        # 3. 更新 manifest
-        summary = _extract_summary(html)
-        now = datetime.now(UTC).isoformat()
-        manifest = load_manifest(meeting_id, docs_dir)
-        manifest.append({
-            "version": v,
-            "created_at": now,
-            "trigger": trigger,
-            "summary": summary,
-            "file_size": out.stat().st_size,
-            "file": out.name,
-        })
-        save_manifest(meeting_id, manifest, docs_dir)
+            # 1. 推进版本号
+            v = next_version(meeting_id, docs_dir)
 
-        # 4. 更新 symlink
-        _update_latest_symlink(meeting_id, v, docs_dir)
+            # 2. 写文件
+            out = _version_path(meeting_id, v, docs_dir)
+            out.write_text(html, encoding="utf-8")
+
+            # 3. 更新 manifest
+            summary = _extract_summary(html)
+            now = datetime.now(UTC).isoformat()
+            manifest = load_manifest(meeting_id, docs_dir)
+            manifest.append({
+                "version": v,
+                "created_at": now,
+                "trigger": trigger,
+                "summary": summary,
+                "file_size": out.stat().st_size,
+                "file": out.name,
+            })
+            save_manifest(meeting_id, manifest, docs_dir)
+
+            # 4. 更新 symlink
+            _update_latest_symlink(meeting_id, v, docs_dir)
 
         logger.info(
             f"[{meeting_id}] demo v{v} 已写 ({out.stat().st_size}B, "

@@ -130,7 +130,20 @@ class DocTaskManager:
         meeting_id: str,
         runner: Callable[[int, str], Any],
     ) -> DocTask | None:
-        """提交新任务 (debounce). 若 meeting 有 running 任务则 defer, 返回 None."""
+        """提交新任务 (debounce). 若 meeting 有 running 任务则 defer, 返回 None.
+
+        v0.23.2: 提交前检查 should_skip_generation (finalized / input_unchanged).
+        """
+        # v0.23.2: generation check — finalized or input unchanged
+        try:
+            from .generation import should_skip_generation as _skip
+            _should, _reason, _ = _skip(meeting_id)
+            if _should:
+                logger.info("[task_manager] skip submission meeting=%s reason=%s", meeting_id, _reason)
+                return None
+        except Exception as _e:
+            logger.warning("[task_manager] generation check failed: %s", _e)
+
         queue = self.get_or_create_queue(meeting_id)
         return queue.submit(self.executor, runner)
 

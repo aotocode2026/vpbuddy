@@ -282,10 +282,33 @@ def run_docs(gen_id: int, mid: str) -> dict[str, Any]:
     """统一文档 runner — batch_docs + demo 顺序触发，被 task_manager 调度.
     
     gen_id 用于 stale check: 若此 generation 已被 supersede, 跳过调度.
+
+    v0.23.2: 集成 generation 跟踪 (input hash + idempotency key + output hash).
+    若 input 无变化则跳过 agent 调用, 返回 input_unchanged.
     """
     from .task_manager import get_task_manager
+    from .generation import (
+        create_generation,
+        complete_generation,
+        is_stale_generation,
+    )
+
     manager = get_task_manager()
-    results = {}
+
+    # v0.23.2: 创建 generation 记录 (含 input hash + idempotency key)
+    gen_rec = create_generation(mid, artifact="docs")
+    if gen_rec.status == "unchanged":
+        logger.info("[run_docs] meeting %s input unchanged, skip agent invocation", mid)
+        return {
+            "batch_docs": {"triggered": False, "reason": "input_unchanged"},
+            "demo": {"triggered": False, "reason": "input_unchanged"},
+            "generation_status": "unchanged",
+            "idempotency_key": gen_rec.idempotency_key,
+        }
+
+    id_key = gen_rec.idempotency_key
+    results: dict[str, Any] = {"idempotency_key": id_key, "generation_id": gen_rec.gen_id}
+
     for kind in [BATCH_DOCS_KIND, DEMO_KIND]:
         if manager.is_stale(mid, gen_id):
             results[kind] = {"triggered": False, "error": "stale_generation_superseded"}
@@ -295,6 +318,38 @@ def run_docs(gen_id: int, mid: str) -> dict[str, Any]:
             results[kind] = {"triggered": r.get("triggered"), "error": r.get("error")}
         except Exception as e:
             results[kind] = {"triggered": False, "error": str(e)}
+
+    # v0.23.2: 标记 generation 完成 (含 output hash)
+    try:
+        # 用 demo 版本的 output hash 作为整体 output hash
+        ohash = None
+        demo_result = results.get("demo", {})
+        if demo_result.get("demo_version"):
+            try:
+                from .demo_version import list_versions
+                versions = list_versions(mid)
+                if versions:
+                    latest_v = versions[0]["version"]
+                    vpath = DOCS_DIR / mid / f"demo_v{latest_v}.html"
+                    if vpath.exists():
+                        import hashlib
+                        ohash = hashlib.md5(vpath.read_bytes()).hexdigest()
+            except Exception:
+                pass
+
+        # 检查是否被 supersede
+        if is_stale_generation(mid, gen_rec.gen_id):
+            complete_generation(mid, gen_rec.gen_id, status="stale", output_hash=ohash)
+            results["generation_status"] = "stale"
+        elif any(r.get("error") for r in [results.get("batch_docs", {}), results.get("demo", {})]):
+            complete_generation(mid, gen_rec.gen_id, status="failed", output_hash=ohash)
+            results["generation_status"] = "failed"
+        else:
+            complete_generation(mid, gen_rec.gen_id, status="completed", output_hash=ohash)
+            results["generation_status"] = "completed"
+    except Exception as e:
+        logger.warning("[run_docs] generation completion failed: %s", e)
+
     return results
 
 

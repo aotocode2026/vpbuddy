@@ -90,7 +90,8 @@ from .server.api_utils import (  # noqa: E402
 
 # ── 模块级会议关闭函数 (v0.9.0: 供 FastAPI + VPBuddyHandler 共用) ──
 
-# BE-044/BE-117 幂等: 记录已 finalize 的会议, 防止重复 /close 触发重复 meeting-complete + experience + doc task
+# v0.23.2: _finalized_meetings 保留作为运行时缓存, 防止同进程内重复 finalize.
+# 持久化 finalize 状态由 generation.mark_finalized() 管理 (磁盘 .finalized 文件).
 _finalized_meetings: dict[str, dict] = {}
 
 def _close_meeting(meeting_id: str) -> dict:
@@ -104,11 +105,20 @@ def _close_meeting(meeting_id: str) -> dict:
     还要等 30s 收 doc-update/demo-new-version 等事后事件, 服务端提前 kill SSE 会导致
     "暂停录音→断联" bug. SSE 订阅者由客户端主动断开时自动清理 (sse_generator finally).
     120s 后兜底 close 防资源泄漏.
+    v0.23.2: 持久化 finalize 状态 (generation.mark_finalized), 重启后仍有效.
     """
     from .realtime_server import push_event
     from .task_manager import get_task_manager
+    from .generation import mark_finalized as _mark_finalized
 
-    # BE-044/BE-117: 幂等 — 已 finalize 的会议直接返回缓存结果
+    # v0.23.2: 持久化 finalize (磁盘文件, 重启后仍有效)
+    finalize_record = _mark_finalized(meeting_id)
+    is_repeat = (
+        meeting_id in _finalized_meetings
+        or finalize_record.get("is_repeat", False)
+    )
+
+    # 幂等 — 已 finalize 的会议直接返回缓存结果
     if meeting_id in _finalized_meetings:
         return _finalized_meetings[meeting_id]
 
