@@ -194,12 +194,57 @@ class BailianCallback:
             self._session.add_sentence(text, cleaned, is_noise=is_noise)
             tag = " [NOISE]" if is_noise else ""
             self._write_state(cleaned, self._session.sentence_count)
+            self._persist_segment(text, cleaned, begin_time, end_time, is_noise)
             logger.info("[bailian_asr] sentence #%d%s: %s", self._session.sentence_count, tag, text[:80])
             if self._on_state_changed is not None:
                 try:
                     self._on_state_changed(self._session.meeting_id)
                 except Exception as _e:
                     logger.warning("[bailian_asr] on_state_changed failed: %s", _e)
+
+    def _persist_segment(self, text: str, cleaned: str, begin_time: int, end_time: int, is_noise: bool) -> None:
+        """v0.23.3: 持久化转写分段到 stream.json.transcript_segments (#45).
+
+        - 幂等: 相同 segment_id 不重复追加
+        - 噪声句不进入持久化
+        - 原子读改写 (per-meeting lock)
+        """
+        if is_noise:
+            return
+        if not self._data_dir or not self._session.meeting_id:
+            return
+        try:
+            from .api_utils import _load_stream_meta, _save_stream_meta
+
+            seg_id = f"{self._session.recording_session_id}:{self._session.sentence_count}"
+            clean_text = cleaned.strip() if cleaned else text.strip()
+            if not clean_text:
+                return
+
+            meta = _load_stream_meta(self._session.meeting_id)
+            segments = meta.get("transcript_segments", [])
+
+            # 幂等: 已存在相同 id 则跳过
+            if any(s.get("id") == seg_id for s in segments):
+                return
+
+            segments.append({
+                "id": seg_id,
+                "recording_session_id": self._session.recording_session_id,
+                "sequence": self._session.sentence_count,
+                "text": clean_text,
+                "begin_time": begin_time,
+                "end_time": end_time,
+                "is_sentence_end": True,
+                "is_noise": False,
+                "speaker_id": "UNKNOWN",
+            })
+            meta["transcript_segments"] = segments
+            meta["transcript_revision"] = self._session.sentence_count
+            _save_stream_meta(self._session.meeting_id, meta)
+            logger.debug("[bailian_asr] persisted segment %s: %s", seg_id, clean_text[:40])
+        except Exception as e:
+            logger.error("[bailian_asr] _persist_segment failed: %s", e)
 
     def _write_state(self, text: str, idx: int) -> None:
         """追加清理后文本到 MeetingStorage (Issue #31: 写 cleaned_accumulated_text)."""

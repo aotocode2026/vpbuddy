@@ -561,7 +561,11 @@ def delete_kb_doc(doc_id: str, user: dict = Depends(get_current_user)):
 
 @app.get("/api/kb/{doc_id}/file")
 def get_kb_doc_file(doc_id: str, user: dict = Depends(get_current_user)):
-    """GET /api/kb/{doc_id}/file — 下载 KB 文档原始文件 (需认证 + owner 校验)"""
+    """GET /api/kb/{doc_id}/file — 下载 KB 文档原始文件 (需认证 + owner 校验)
+
+    v0.23.3: 使用 FileResponse.filename 参数替代手写 Content-Disposition header,
+    自动处理 RFC 5987 filename*=utf-8''... 编码，修复中文文件名断连问题 (#47).
+    """
     from ..kb_api import get_kb_file_path
 
     fp, meeting_id = get_kb_file_path(doc_id)
@@ -571,8 +575,8 @@ def get_kb_doc_file(doc_id: str, user: dict = Depends(get_current_user)):
         _require_meeting_owner(meeting_id, user)
     return FileResponse(
         str(fp),
+        filename=fp.name,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{fp.name}"'},
     )
 
 
@@ -731,7 +735,10 @@ def get_meeting_doc(meeting_id: str, kind: str, user: dict = Depends(get_current
 
 @app.get("/api/meetings/{meeting_id}/docs/{kind}/download")
 def get_meeting_doc_download(meeting_id: str, kind: str, user: dict = Depends(get_current_user)):
-    """GET /api/meetings/{id}/docs/{kind}/download — 下载文档文件 (归档/导出)"""
+    """GET /api/meetings/{id}/docs/{kind}/download — 下载文档文件 (归档/导出)
+
+    v0.23.3: FileResponse.filename 自动 RFC 5987 编码 (#47).
+    """
     if kind not in DOC_KINDS:
         raise HTTPException(status_code=400, detail=f"unknown doc kind: {kind}")
     _require_meeting_owner(meeting_id, user)
@@ -741,8 +748,8 @@ def get_meeting_doc_download(meeting_id: str, kind: str, user: dict = Depends(ge
     filename = "demo.html" if kind == "demo" else f"{kind}.md"
     return FileResponse(
         str(path),
+        filename=filename,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -1087,7 +1094,10 @@ async def delete_material(material_id: str, user: dict = Depends(get_current_use
 
 @app.get("/api/materials/{material_id}/file")
 async def get_material_file(material_id: str, user: dict = Depends(get_current_user)):
-    """GET /api/materials/{id}/file — 下载材料原文件 (需认证 + 会议 owner 校验)"""
+    """GET /api/materials/{id}/file — 下载材料原文件 (需认证 + 会议 owner 校验)
+
+    v0.23.3: FileResponse.filename 自动 RFC 5987 编码 (#47).
+    """
     meta = material_storage.get_material(material_id)
     if meta is None:
         raise HTTPException(status_code=404, detail=f"Material not found: {material_id}")
@@ -1098,8 +1108,8 @@ async def get_material_file(material_id: str, user: dict = Depends(get_current_u
         raise HTTPException(status_code=404, detail=f"Material file not found: {material_id}")
     return FileResponse(
         str(fp),
+        filename=meta.filename,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{meta.filename}"'},
     )
 
 
