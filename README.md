@@ -2,7 +2,7 @@
 
 > **本地优先的会议操作系统级 AI 助手** —— 为 VP / 售前 / 项目负责人设计,运行在 VP 自己桌面客户端,数据完全本地化。
 
-**v0.22.6** (2026-07-12) — **toolsets 扩展** (vision+web) · **KB search 非阻塞** (run_in_executor) · **.env 自动加载** (多路径 fallback) · **gkd 无字数阈值** (hash 即触发) · **vision 配置看护** (Hermes auxiliary.vision) · **"录音就绪" 文案**。详见 [Releases](https://github.com/zhangsheng377/vpbuddy/releases)。
+**v0.23.3** (2026-07-18) — **ASR 转写分段持久化** (`_persist_segment` → `{mid}.stream.json`) · **RFC 5987 中文文件名下载** (3 个端点 `FileResponse(filename=)`) · **Generation 去重** (输入哈希 + `.finalized` + demo 锁)。详见 [Releases](https://github.com/zhangsheng377/vpbuddy/releases)。
 
 [English](#english) | [中文](#中文)
 

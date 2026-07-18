@@ -1,6 +1,7 @@
 |> **说明**:本文档是 VPBuddy 产品说明书的当前版本。
 |> 
 |> **版本历史**:
+|> - **v2.8** (2026-07-18): **v0.23.3 — ASR 转写分段持久化 + RFC 5987 中文文件名下载 + Generation 去重**: `_persist_segment()` 幂等写入 `{mid}.stream.json` 转写分段不丢失；3 个下载端点 RFC 5987 自动编码中文文件名不再断连；输入哈希去重 + `.finalized` 持久化 + demo 发布锁 详见 [ADR-0059](../decisions/0059-asr-segment-persistence-rfc5987-download.md) · [ADR-0058](../decisions/0058-generation-dedup-idempotency.md)
 |> - **v2.7** (2026-07-14): **v0.22.8 — 录音稳定性三修 + 数据安全加固**: 百炼 ASR 自动重连、`stream_start` 断线重连保留转录、图片/对话上传非阻塞；Agent 铁律增强、会议删除彻底清理、经验蒸馏自排除；WS/SSE 解耦 + 停止录音按钮即时响应
 - **v2.5** (2026-07-13): **v0.22.7 — pause≠stop + chat注入子agent + close 120s兜底**: 客户端 `stop_capture({close_meeting: true})` 区分暂停/结束；`format_state_summary()` 注入 chat 历史 + 上传文件列表；`_close_meeting()` 延迟关闭 SSE
 - **v2.4** (2026-07-12): **v0.22.6 — vision 三层通道 + mmx-cli**: OpenAI 兼容端点 → monkeypatch → mmx-cli MiniMax 原生 VLM 后备，图片识图永不 401
@@ -26,9 +27,9 @@
 
 ---
 
-# VPBuddy 产品说明书 v2.7
+# VPBuddy 产品说明书 v2.8
 
-> **v2.7** (2026-07-14 修订 — **v0.22.8**): 录音稳定性三修（百炼 ASR 自动重连、断线重连保留转录、上传/chat 非阻塞）+ 数据安全加固（Agent 铁律增强、会议删除彻底清理、经验蒸馏自排除）+ WS/SSE 解耦 + 停止录音按钮即时响应。详见 [总体架构 v1.50](../design/总体架构.md) + [API 参考 v0.22.8](../api-reference.md)。
+> **v2.8** (2026-07-18 修订 — **v0.23.3**): ASR 转写分段持久化（服务重启不丢失）+ RFC 5987 中文文件名下载（不再断连）+ Generation 去重与 Finalize 幂等（输入哈希去重 + .finalized 持久化）。详见 [总体架构 v1.53](../design/总体架构.md) + [API 参考 v0.23.3](../api-reference.md) · ADR-0058/0059。
 
 > **历史版本**:v1.0-v1.13 已归档删除。
 

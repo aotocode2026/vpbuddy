@@ -1,6 +1,6 @@
 # VPBuddy HTTP API 参考
 
-> **版本**: v0.23.1 · `@ 2026-07-16`
+> **版本**: v0.23.3 · `@ 2026-07-18`
 > **Base URL**: `http://47.100.182.3:28765`（公网 GPU 服务器）
 > **协议**: HTTP/1.1 · WebSocket 实时 ASR · SSE 实时推送 · Multipart 上传
 > **编码**: 所有请求/响应使用 UTF-8
@@ -9,6 +9,11 @@
 > **会议隔离 (ADR-0050)**: 所有单会议端点 (state/docs/events/aggregate/collab/chat/close/materials) 仅 owner 可访问, 非 owner 返回 `403`
 > **百炼 ASR (ADR-0051)**: API Key 从 `DASHSCOPE_API_KEY` 环境变量读取, 仓库不存明文; 服务端**必须**通过 `bash run.sh` 启动以注入 key。
 > **⚠️ Breaking in v0.20**: `upload_audio`、`stream_chunk`、`stream_stop` 已移除，30s 切片模式已废弃，请使用 WebSocket 实时 ASR。
+>
+> **v0.23.3 关键变更 (ASR 分段持久化 + RFC 5987 文件名下载 + E2E 加固 — ADR-0059)**:
+> - **ASR 转写分段持久化 (#45)**: 每句转写完成后幂等写入 `data/meetings/{mid}.stream.json` → `transcript_segments[]`，服务重启/崩溃不再丢失。分段 id = `{recording_session_id}:{sentence_count}`，噪音和空文本自动跳过。
+> - **RFC 5987 中文文件名下载 (#47)**: `GET /api/kb/{doc_id}/file`、`GET /api/meetings/{id}/docs/{kind}/download`、`GET /api/materials/{id}/file` 三个下载端点改用 `FileResponse(filename=)` — Starlette 内置 RFC 5987 编码（`filename*=UTF-8''...`），中文文件名不再导致浏览器断连。
+> - **Generation 去重与 Finalize 幂等 (v0.23.2, ADR-0058)**: 输入哈希去重 + `.finalized` 持久化 + idempotency key + demo 发布锁 + generation 记录跟踪。详见 [ADR-0058](../decisions/0058-generation-dedup-idempotency.md)。
 >
 > **v0.23.1 关键变更 (事件驱动文档生成 — ADR-0057)**:
 > - **事件驱动文档生成**: bailian_asr 每句转写完成 → `on_state_changed` → `task_manager.submit`，不再依赖定时轮询
@@ -402,6 +407,8 @@ POST /api/meetings/stream_start
 
 创建会议后会初始化 `MeetingState`（含空的 `cleaned_text` 字段）。后续通过 WebSocket 推送音频。
 
+**v0.23.3**: 转写分段实时持久化到 `data/meetings/{mid}.stream.json` → `transcript_segments[]`，服务重启不丢失。
+
 ---
 
 ### 4.7 WebSocket 实时 ASR（百炼 Fun-ASR-Realtime）
@@ -574,7 +581,7 @@ GET /api/meetings/{id}/docs/{kind}
 GET /api/meetings/{id}/docs/{kind}/download
 ```
 
-返回文档文件原始内容，`Content-Disposition: attachment` 触发浏览器下载。`kind=demo` 返回 `demo.html`，其余返回 `{kind}.md`。需认证 + owner 校验。
+返回文档文件原始内容，`Content-Disposition: attachment; filename*=UTF-8''...` (RFC 5987 编码) 触发浏览器下载。`kind=demo` 返回 `demo.html`，其余返回 `{kind}.md`。需认证 + owner 校验。
 
 ---
 
@@ -770,7 +777,7 @@ DELETE /api/materials/{id}
 
 ## 11. 文件下载 (v0.19.0)
 
-三种文件下载接口, 均需认证 + owner 校验, 返回 `Content-Disposition: attachment`:
+三种文件下载接口, 均需认证 + owner 校验, 返回 `Content-Disposition: attachment; filename*=UTF-8''...`（RFC 5987 编码，v0.23.3 起由 `FileResponse(filename=)` 自动处理，中文文件名不再断连）:
 
 ### 11.1 下载交付物文件
 
@@ -986,12 +993,15 @@ GET /api/timeline
 | `/data/vpbuddy/server/src/` | 服务端 Python 源码 |
 | `/data/vpbuddy/server/data/experiences/` | 经验蒸馏 JSON |
 | `/data/vpbuddy/server/data/uploads/{mid}/` | 会议上传文件 (文本+图片原始文件) |
+| `/data/vpbuddy/server/data/meetings/stream/{mid}.stream.json` | 转写分段持久化记录 (v0.23.3, ADR-0059) |
 | `/root/.mmx/config.json` | mmx-cli 登录凭据 (MiniMax API key, ADR-0054) |
 
-### 近期变更 (v0.22.8)
+### 近期变更 (v0.23.3)
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| **v0.23.3** | **2026-07-18** | **ASR 分段持久化 (#45)**: `_persist_segment()` 幂等写入 `{mid}.stream.json` → `transcript_segments[]` + **RFC 5987 中文文件名下载 (#47)**: 3 个下载端点改用 `FileResponse(filename=)` 自动编码 + **E2E 测试加固**: task_manager 3 + fastapi_server 27 修复 |
+| v0.23.2 | 2026-07-18 | **Generation 去重 + Finalize 幂等 (ADR-0058)**: compute_input_hash + should_skip_generation + mark_finalized (.finalized) + idempotency key + demo 发布锁 (per-meeting Lock) + generation 记录跟踪 |
 | v0.22.8 | 2026-07-14 | **百炼自动重连**: idle timeout → restart_session() 静默重建 + **WS/SSE 解耦**: 暂停录音不再关SSE，会议保持活跃 + **停止按钮即时响应**: JS先设状态再await + **meeting-complete不覆盖暂停** + **agent sandbox prompt铁律**: 禁读宿主用户名/环境变量 + **delete 完善清理** uploads/KB/agent-cache/experience + **experience exclude_meeting_id** 防自我引用 + **handle_chat_upload补scope** + **stream_start保留转录** + **chat/图片非阻塞** run_in_executor + **图片上传强制触发doc重生成** |
 | v0.23.1 | 2026-07-16 | **事件驱动文档生成 (ADR-0057)**: bailian_asr 句完成→`on_state_changed`→`task_manager.submit` + gkd仅扫活跃SSE + `_write_state`自动创建MeetingState + WS断连触发文档 + task_manager 4→8 workers + **chat上传不入KB**: 文件/图片只落盘 `uploads/{mid}/` + **prompt纠正**: batch_docs.md KB→read_file + VP Chat 6→2子agent |
 | v0.22.7 | 2026-07-13 | **暂停≠结束**: 客户端 `stop_capture({close_meeting: bool})` + `_close_meeting()` 120s 延迟兜底 + **chat历史注入子agent (ADR-0055)**: `format_state_summary()` 读 `{mid}.chat.json`，最近20条+完整路径暴露给batch_docs/demo |

@@ -86,7 +86,7 @@ class TestDocTaskManagerE2E:
             manager.executor.shutdown(wait=False)
 
     def test_debounce_replace_pending(self):
-        """验证 debounce: 新提交替换旧任务."""
+        """验证 debounce: running 时新提交被 defer, 完成后自动 kick."""
         from vpbuddy.task_manager import DocTaskManager
 
         manager = DocTaskManager(max_workers=1)
@@ -94,22 +94,31 @@ class TestDocTaskManagerE2E:
 
         try:
             # 提交慢 task, 将占住唯一的 worker
-            task1 = manager.submit(meeting_id, lambda gid, mid: _slow_runner(gid, mid, delay=0.5))
+            task1 = manager.submit(meeting_id, lambda gid, mid: _slow_runner(gid, mid, delay=0.3))
+            assert task1 is not None
             assert task1.generation_id == 1
 
             # 等 task1 开始 running
             time.sleep(0.1)
 
-            # 提交新 task, 应该 cancel 旧的并替换
+            # 提交新 task — running 时 defer, 返回 None
             task2 = manager.submit(meeting_id, _fast_runner)
-            assert task2.generation_id == 2
+            assert task2 is None, "running 时新提交应 defer (返回 None)"
 
-            # 旧的应被 marked CANCELLED
-            assert task1.status.value in ("cancelled", "completed", "running")
-            # 新的应完成
-            task2.future.result(timeout=5)
-            assert task2.status.value == "completed"
-            assert task2.result["generation_id"] == 2
+            # 等 task1 完成, 被 defer 的 task 自动执行
+            task1.future.result(timeout=5)
+
+            # task1 状态: completed (defer 不取消旧任务)
+            assert task1.status.value == "completed"
+
+            # 等待 defer kick 完成
+            time.sleep(0.1)
+
+            # 验证队列: generation_id 应递增到 2（defer 的 task 执行了）
+            status = manager.get_status(meeting_id)
+            assert status["generation_id"] == 2, (
+                f"defer 后 generation_id 应为 2, 实际 {status['generation_id']}"
+            )
         finally:
             manager.executor.shutdown(wait=False)
 
@@ -219,8 +228,6 @@ class TestDocTaskManagerE2E:
         meeting_id = "test_concurrent"
         n_threads = 10
 
-        results = []
-
         def _submit_task(idx: int):
             task = manager.submit(meeting_id, lambda gid, mid: {
                 "idx": idx,
@@ -230,20 +237,30 @@ class TestDocTaskManagerE2E:
             return task
 
         with ThreadPoolExecutor(max_workers=n_threads) as pool:
-            futures = [pool.submit(_submit_task, i) for i in range(n_threads)]
+            fut_list = [pool.submit(_submit_task, i) for i in range(n_threads)]
 
-        submitted_tasks = [f.result() for f in futures]
+        submitted_tasks = [f.result() for f in fut_list]
 
         try:
-            # 验证所有 submission 成功
-            assert len(submitted_tasks) == n_threads
+            # 因为 defer 机制, running 时提交会返回 None; 至少应有部分成功
+            non_none = [t for t in submitted_tasks if t is not None]
+            assert len(non_none) >= 1, "至少应有 1 个提交成功"
+            none_count = sum(1 for t in submitted_tasks if t is None)
+            assert none_count <= n_threads - 1, "至少应有 1 个成功"
 
-            # 验证最终 task 的 generation_id 最大
+            # 等所有 running 任务完成, defer 任务也会自动 kick
+            for t in non_none:
+                try:
+                    t.future.result(timeout=5)
+                except Exception:
+                    pass
+            time.sleep(0.2)
+
+            # 最终再提交一个任务验证队列状态一致
             final_task = manager.submit(meeting_id, _fast_runner)
+            assert final_task is not None, "最终提交应成功"
             final_task.future.result(timeout=5)
-            assert final_task.generation_id <= n_threads + 1  # 最多 n+1
 
-            # 验证队列状态一致
             status = manager.get_status(meeting_id)
             assert status["generation_id"] == final_task.generation_id
             assert status["task"]["status"] == "completed"
@@ -281,28 +298,37 @@ class TestDocTaskManagerE2E:
             manager.executor.shutdown(wait=False)
 
     def test_generation_id_stale_check(self):
-        """验证 is_stale 检测过时 generation_id."""
+        """验证 is_stale 检测过时 generation_id (defer 场景)."""
         from vpbuddy.task_manager import DocTaskManager
 
         manager = DocTaskManager(max_workers=1)
         meeting_id = "test_stale"
 
         try:
-            # 提交 task1
+            # 提交 task1 (慢)
             task1 = manager.submit(meeting_id, lambda gid, mid: _slow_runner(gid, mid, delay=0.3))
+            assert task1 is not None
             gen1 = task1.generation_id
 
             time.sleep(0.1)
 
-            # 提交 task2 (debounce task1)
+            # 提交 task2 — running 时 defer, 返回 None
             task2 = manager.submit(meeting_id, _fast_runner)
-            gen2 = task2.generation_id
+            assert task2 is None, "running 时新提交应 defer"
 
+            # gen1 不应 stale (task1 仍在 running, 未被替换)
             queue = manager.get_or_create_queue(meeting_id)
-            assert queue.is_stale(gen1), "gen1 应已被标记 stale"
-            assert not queue.is_stale(gen2), "gen2 不应被标记 stale"
+            assert not queue.is_stale(gen1), "task1 仍在 running, 不应 stale"
 
-            task2.future.result(timeout=5)
+            # 等 task1 完成, defer 自动 kick
+            task1.future.result(timeout=5)
+            time.sleep(0.1)
+
+            # defer 后的 task 执行完毕, gen1 现在 stale
+            assert queue.is_stale(gen1), "gen1 应已被标记 stale"
+
+            # 验证 gen2 是当前 generation
+            assert queue.generation_id == 2
         finally:
             manager.executor.shutdown(wait=False)
 
