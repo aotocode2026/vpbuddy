@@ -36,9 +36,9 @@ _DEFAULT_DATA_DIR = Path(
 # ── Finalize state ──
 
 
-def _finalize_path(meeting_id: str, data_dir: Path | None = None) -> Path:
+def _finalize_path(meeting_id: str, data_dir: Path | str | None = None) -> Path:
     """Path to .finalized marker file."""
-    d = data_dir or _DEFAULT_DATA_DIR
+    d = Path(data_dir) if data_dir else _DEFAULT_DATA_DIR
     return d / f"{meeting_id}.finalized"
 
 
@@ -100,7 +100,7 @@ def compute_input_hash(meeting_id: str, data_dir: Path | None = None) -> str:
     Excludes:
       - last_updated, created_at, speaker_map, IDs, version metadata
     """
-    d = data_dir or _DEFAULT_DATA_DIR
+    d = Path(data_dir) if data_dir else _DEFAULT_DATA_DIR
     canonical: dict[str, Any] = {}
 
     # 1. MeetingState
@@ -165,8 +165,8 @@ def compute_input_hash(meeting_id: str, data_dir: Path | None = None) -> str:
 _GENERATIONS_DIR_NAME = "generations"
 
 
-def _generations_path(meeting_id: str, data_dir: Path | None = None) -> Path:
-    d = data_dir or _DEFAULT_DATA_DIR
+def _generations_path(meeting_id: str, data_dir: Path | str | None = None) -> Path:
+    d = Path(data_dir) if data_dir else _DEFAULT_DATA_DIR
     return d / _GENERATIONS_DIR_NAME / f"{meeting_id}.json"
 
 
