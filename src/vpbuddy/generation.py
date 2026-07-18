@@ -225,9 +225,9 @@ def _next_gen_id(meeting_id: str) -> int:
         return _counters[meeting_id]
 
 
-def _next_revision(meeting_id: str) -> int:
+def _next_revision(meeting_id: str, data_dir: Path | None = None) -> int:
     """Revision = number of completed generations + 1."""
-    records = load_generations(meeting_id)
+    records = load_generations(meeting_id, data_dir)
     completed = [r for r in records if r.status == "completed"]
     return len(completed) + 1
 
@@ -277,7 +277,7 @@ def create_generation(
     Returns the record. Caller is responsible for setting status and saving.
     """
     input_hash = compute_input_hash(meeting_id, data_dir)
-    revision = _next_revision(meeting_id)
+    revision = _next_revision(meeting_id, data_dir)
     gen_id = _next_gen_id(meeting_id)
     id_key = f"{meeting_id}:{artifact}:r{revision}:{input_hash[:16]}"
 

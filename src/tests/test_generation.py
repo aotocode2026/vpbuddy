@@ -372,3 +372,153 @@ def test_generation_record_roundtrip():
     assert rec2.idempotency_key == rec.idempotency_key
     assert rec2.output_hash == rec.output_hash
     assert rec2.status == rec.status
+
+
+# ── Integration: run_docs lifecycle simulation ──
+
+
+def test_run_docs_flow_create_complete_skip(tmp_data_dir, meeting_id, meeting_state):
+    """Simulate run_docs: create → completed → next call should skip."""
+    rec1 = create_generation(meeting_id, data_dir=tmp_data_dir)
+    assert rec1.status == "queued"
+
+    complete_generation(meeting_id, rec1.gen_id, status="completed", data_dir=tmp_data_dir)
+
+    # Same input → should skip
+    skip, reason, key = should_skip_generation(meeting_id, data_dir=tmp_data_dir)
+    assert skip is True
+    assert reason == "input_unchanged"
+    assert key == rec1.idempotency_key
+
+
+def test_run_docs_flow_first_then_changed(tmp_data_dir, meeting_id, meeting_state):
+    """run_docs after input change should NOT skip."""
+    rec1 = create_generation(meeting_id, data_dir=tmp_data_dir)
+    complete_generation(meeting_id, rec1.gen_id, status="completed", data_dir=tmp_data_dir)
+
+    # Change state
+    state_path = tmp_data_dir / f"{meeting_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["cleaned_text"] = "完全不同的话题内容"
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    skip, reason, _ = should_skip_generation(meeting_id, data_dir=tmp_data_dir)
+    assert skip is False
+
+    rec2 = create_generation(meeting_id, data_dir=tmp_data_dir)
+    assert rec2.status == "queued"
+    assert rec2.input_hash != rec1.input_hash
+    assert rec2.revision == 2  # 1 completed → revision starts at 2
+
+
+def test_should_skip_with_no_state_file(tmp_data_dir, meeting_id):
+    """No state file at all → should NOT skip (first generation)."""
+    skip, reason, _ = should_skip_generation(meeting_id, data_dir=tmp_data_dir)
+    assert skip is False
+
+
+def test_finalized_blocks_all_generations(tmp_data_dir, meeting_id, meeting_state):
+    """After mark_finalized, should_skip always returns finalized."""
+    mark_finalized(meeting_id, data_dir=tmp_data_dir)
+
+    # Before any generation
+    skip, reason, _ = should_skip_generation(meeting_id, data_dir=tmp_data_dir)
+    assert skip is True
+    assert reason == "finalized"
+
+    # Even after a generation is created (edge case)
+    rec = create_generation(meeting_id, data_dir=tmp_data_dir)
+    # But create_generation doesn't check finalized — that's task_manager's job
+    # So test that should_skip still says finalized
+    skip2, reason2, _ = should_skip_generation(meeting_id, data_dir=tmp_data_dir)
+    assert skip2 is True
+    assert reason2 == "finalized"
+
+
+# ── demo_version publish lock ──
+
+
+def test_demo_publish_lock_same_meeting():
+    """_get_publish_lock returns the same lock object for the same meeting_id."""
+    from vpbuddy.demo_version import _get_publish_lock
+
+    lock1 = _get_publish_lock("meeting_A")
+    lock2 = _get_publish_lock("meeting_A")
+    lock3 = _get_publish_lock("meeting_B")
+
+    assert lock1 is lock2
+    assert lock1 is not lock3
+
+
+def test_demo_publish_lock_threadsafe():
+    """Multiple threads requesting the same meeting lock get the same object."""
+    from vpbuddy.demo_version import _get_publish_lock
+    import threading
+
+    results = []
+
+    def get_lock():
+        results.append(id(_get_publish_lock("mtg_shared")))
+
+    threads = [threading.Thread(target=get_lock) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert len(set(results)) == 1
+
+
+# ── Input hash: items with different status/priority ──
+
+
+def test_input_hash_items_different_priority(tmp_data_dir, meeting_id, meeting_state):
+    """Changing only item priority changes hash."""
+    h1 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+
+    state_path = tmp_data_dir / f"{meeting_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["requirements"][0]["priority"] = "low"
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    h2 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+    assert h1 != h2
+
+
+def test_input_hash_items_different_status(tmp_data_dir, meeting_id, meeting_state):
+    """Changing item status (pending → confirmed) changes hash."""
+    h1 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+
+    state_path = tmp_data_dir / f"{meeting_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["requirements"][0]["status"] = "confirmed"
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    h2 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+    assert h1 != h2
+
+
+def test_input_hash_empty_items(tmp_data_dir, meeting_id, meeting_state):
+    """Empty items list → deterministic hash."""
+    state_path = tmp_data_dir / f"{meeting_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["requirements"] = []
+    state["goals"] = []
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    h1 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+    h2 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+    assert h1 == h2
+
+
+def test_input_hash_shuffled_items_same(tmp_data_dir, meeting_id, meeting_state):
+    """Items in different order produce same hash (sorted canonical)."""
+    h1 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+
+    state_path = tmp_data_dir / f"{meeting_id}.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["requirements"].reverse()
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+
+    h2 = compute_input_hash(meeting_id, data_dir=tmp_data_dir)
+    assert h1 == h2
