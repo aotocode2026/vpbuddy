@@ -29,7 +29,15 @@ def check_all_docs_stored_notify(meeting_id: str, doc_kinds: list[str] | None = 
     e2e 实测前端 main.js 0 引用, Tauri Rust 后端 SSE 也不透传. UI 靠 docs 面板实时
     渲染即可知道完成状态, 不需要额外 banner.
     """
-    from .ui_server import _doc_path
+    from . import ui_server
+
+    def _resolve_doc_path(kind: str):
+        """Resolve paths from ui_server.DOCS_DIR so test/runtime overrides apply."""
+        base = ui_server.DOCS_DIR / meeting_id
+        if kind == "demo":
+            return base / "demo" / "demo.html"
+        return base / f"{kind}.md"
+
     if doc_kinds is None:
         doc_kinds = ["req", "arch", "tasks", "api", "risk", "demo"]
     all_stored = True
@@ -37,8 +45,8 @@ def check_all_docs_stored_notify(meeting_id: str, doc_kinds: list[str] | None = 
     for kind in doc_kinds:
         # 2026-07-01 fix: 之前用 meeting_dir / f"{kind}.md" 找 demo 文件,
         # 但 demo 在 meeting_dir/demo/demo.html (ui_server._doc_path 的逻辑).
-        # 现在用 _doc_path (DRY — 唯一真相源).
-        path = _doc_path(meeting_id, kind)
+        # 现在按 ui_server.DOCS_DIR 解析, 支持测试和运行时覆盖.
+        path = _resolve_doc_path(kind)
         if not path.exists() or path.stat().st_size == 0:
             all_stored = False
             sizes[kind] = 0
@@ -50,25 +58,6 @@ def check_all_docs_stored_notify(meeting_id: str, doc_kinds: list[str] | None = 
         f"[{meeting_id}] 6 docs 全部 stored ({sum(sizes.values())} bytes), "
         f"返 True 不推 docs-complete SSE 不关会议 (ADR-0022 + 2026-07-02 删 docs-complete 死代码)"
     )
-    # Issue #3 修复: 先推 doc-update SSE 事件, 确保前端面板已更新再发 banner
-    try:
-        from .realtime_server import push_event as _push_event
-        from datetime import datetime as _dt
-        for kind in doc_kinds:
-            path = _doc_path(meeting_id, kind)
-            if path.exists() and path.stat().st_size > 0:
-                content = path.read_text(encoding="utf-8", errors="replace")
-                _push_event(meeting_id, "doc-update", {
-                    "kind": kind,
-                    "status": "stored",
-                    "doc_size": path.stat().st_size,
-                    "meeting_id": meeting_id,
-                    "content": content,
-                    "updated_at": _dt.now().isoformat(),
-                    "is_demo": kind == "demo",
-                })
-    except Exception as e:
-        logger.warning(f"[{meeting_id}] push SSE doc-update failed: {e}")
     # 2026-07-01 ADR-0023 Phase 5: 6 docs 全部生成 → agent 主动 chat 通知
     # (保留 — 主动 chat 是 _append_chat_message + push_event("chat-message", ...) 走的另一条路,
     #  跟 docs-complete 死代码无关, 不在本轮清理范围)
