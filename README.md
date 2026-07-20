@@ -45,6 +45,97 @@ vpbuddy controller --start
 - 创建本地 RAG 库 (`data/chroma/` 单文件夹持久化)
 - 初始化 6 种子 session prompts
 
+---
+
+### 服务端部署（保姆级教程）
+
+> 适用场景：在 GPU 服务器上部署 VPBuddy 服务端，供客户端远程连接。
+> 前置条件：服务器已安装 Python 3.11+，虚拟环境位于 `/data/vpbuddy/venv/`。
+
+#### 第一步：获取代码
+
+```bash
+cd /data/vpbuddy
+git clone https://github.com/zhangsheng377/vpbuddy.git server
+cd server
+```
+
+#### 第二步：填写 API Key（最重要！）
+
+**只需要改一个文件：`/data/vpbuddy/.env`**
+
+```bash
+vim /data/vpbuddy/.env
+```
+
+在文件中找到 `DASHSCOPE_API_KEY=` 这一行，把等号后面的值换成你的百炼 API Key：
+
+```bash
+# 改这一行即可 —— 启动脚本会自动同步到其他 .env 文件
+DASHSCOPE_API_KEY=sk-ws-H.你的百炼key
+```
+
+> **API Key 获取方式**：登录 [阿里云百炼控制台](https://bailian.console.aliyun.com/) → 左侧「API Key 管理」→ 创建新的 API Key。
+> 注意选择 **websocket** 类型的 key（`sk-ws-H.` 开头），这是实时语音识别所必需的。
+
+**启动脚本会自动把 key 同步到这些位置（你不用手动改）：**
+| 文件 | 用途 | 是否需手动改 |
+|------|------|:---:|
+| `/data/vpbuddy/.env` | **主配置（唯一需改的）** | **是** |
+| `/data/vpbuddy/server/.env` | 服务端运行时读取 | 否（脚本自动同步） |
+| `/root/.hermes/.env` | Hermes Agent 框架 | 否（脚本自动同步） |
+
+#### 第三步：一键启动
+
+```bash
+bash /data/vpbuddy/server/start_vpbuddy.sh
+```
+
+脚本会自动完成：
+1. **杀 admin-dashboard**（如果有，它会干扰 vpbuddy）
+2. **杀旧 vpbuddy 进程**（避免端口冲突）
+3. **释放端口 8765**（如果被占用）
+4. **同步 API Key 到所有 .env 文件**（用第一步填的 key）
+5. **启动服务 + 健康检查**（最多等 60 秒，模型加载需要时间）
+
+成功后会看到：
+
+```
+  ✓ VPBuddy 启动成功！
+    PID:    12345
+    端口:   8765
+    内网:   http://127.0.0.1:8765
+    公网:   http://47.100.182.3:28765
+    日志:   /data/vpbuddy/logs/startup_20260720_151926.log
+```
+
+#### 第四步：验证
+
+```bash
+# 健康检查
+curl http://127.0.0.1:8765/healthz
+# 应返回: {"ok":true}
+```
+
+#### 常见问题
+
+| 问题 | 原因 | 解决 |
+|------|------|------|
+| 启动超时（60 秒还没好） | 模型首次下载慢 | 等 2 分钟后 `curl http://127.0.0.1:8765/healthz` 再试 |
+| ASR 报 `invalid api key` | Key 填错了或没同步 | 检查 `/data/vpbuddy/.env` 的 `DASHSCOPE_API_KEY` 值，确认是 `sk-ws-H.` 开头 |
+| 端口被占用 | 旧进程没杀干净 | `bash start_vpbuddy.sh` 会自动杀旧进程 |
+| admin-dashboard 干扰 | dashboard 自动重启了 vpbuddy | 启动脚本第一步就杀 dashboard，确保它不会干扰 |
+
+#### 重启服务
+
+```bash
+bash /data/vpbuddy/server/start_vpbuddy.sh
+```
+
+**每次都要用这个脚本，不要手动 nohup！** 这个脚本确保 API key 正确同步、端口释放、旧进程清理。
+
+---
+
 ### 下载预编译客户端安装包
 
 VPBuddy 桌面客户端通过 GitHub Actions 自动编译并发布到 Releases 页面：
