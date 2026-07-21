@@ -1,14 +1,20 @@
 # VPBuddy HTTP API 参考
 
-> **版本**: v0.23.3 · `@ 2026-07-18`
+> **版本**: v0.23.3 · `@ 2026-07-21`
 > **Base URL**: `http://47.100.182.3:28765`（公网 GPU 服务器）
 > **协议**: HTTP/1.1 · WebSocket 实时 ASR · SSE 实时推送 · Multipart 上传
 > **编码**: 所有请求/响应使用 UTF-8
 > **CORS**: 所有端点返回 `Access-Control-Allow-Origin: *`
 > **认证 (ADR-0047)**: 除 `/healthz` 和 `/api/auth/*` 外所有端点要求 `Authorization: Bearer <token>`。WebSocket 端点通过 `?token=<JWT>` query param 认证。
 > **会议隔离 (ADR-0050)**: 所有单会议端点 (state/docs/events/aggregate/collab/chat/close/materials) 仅 owner 可访问, 非 owner 返回 `403`
-> **百炼 ASR (ADR-0051)**: API Key 从 `DASHSCOPE_API_KEY` 环境变量读取, 仓库不存明文; 服务端**必须**通过 `bash run.sh` 启动以注入 key。
+> **两路 API Key 分离 (ADR-0060)**: 百炼 `DASHSCOPE_API_KEY` 管 ASR+Vision，MiniMax `MINIMAX_API_KEY` 管 LLM Chat+6doc。不再使用 `OPENAI_API_KEY`/`OPENAI_BASE_URL`。服务端**必须**通过 `bash start_vpbuddy.sh` 启动以注入 key。
 > **⚠️ Breaking in v0.20**: `upload_audio`、`stream_chunk`、`stream_stop` 已移除，30s 切片模式已废弃，请使用 WebSocket 实时 ASR。
+>
+> **v0.23.3 关键变更 (两路 API Key 分离 + Model 显式 Fallback — ADR-0060)**:
+> - **两路 API Key 彻底分离**: 百炼 `DASHSCOPE_API_KEY` (ASR+Vision) + MiniMax `MINIMAX_API_KEY` (LLM Chat+6doc)，删除所有 `OPENAI_API_KEY`/`OPENAI_BASE_URL`
+> - **Vision 简化**: 硬编码 DashScope URL (`https://dashscope.aliyuncs.com/compatible-mode/v1`)，不再有三层逃生通道/mmx-cli 后备
+> - **Model 显式 Fallback**: `model=None` (依赖 Hermes 读 .env) → `model=os.environ.get("MODEL", "minimax-m3")`，防止传空字符串到 MiniMax
+> - **start_vpbuddy.sh MODEL 同步**: .env 同步步骤新增 MODEL 行，确保一键启动后模型名一致
 >
 > **v0.23.3 关键变更 (ASR 分段持久化 + RFC 5987 文件名下载 + E2E 加固 — ADR-0059)**:
 > - **ASR 转写分段持久化 (#45)**: 每句转写完成后幂等写入 `data/meetings/{mid}.stream.json` → `transcript_segments[]`，服务重启/崩溃不再丢失。分段 id = `{recording_session_id}:{sentence_count}`，噪音和空文本自动跳过。
@@ -46,7 +52,7 @@
 > - **vision 三层逃生通道 (ADR-0054)**: OpenAI 兼容端点 (DashScope qwen-vl-max) → monkeypatch Hermes 路由 → mmx-cli MiniMax 原生 VLM 后备，确保图片识图在任何情况下都不 401
 > - **新增 toolsets**: agent 从 `["terminal","file"]` 扩展为 `["terminal","file","vision","web"]`（vision 读图、web DDG 搜索）
 > - **KB search POST 非阻塞**: `async def` → `await run_in_executor(None, ...)`，不再阻塞 event loop
-> - **.env 自动加载**: 服务启动时从 `.env` 注入 `DASHSCOPE_API_KEY` 等环境变量（多路径 fallback + `OPENAI_*` 从 `DASHSCOPE_API_KEY` 兜底推导）
+> - **.env 自动加载**: 服务启动时从 `.env` 注入 `DASHSCOPE_API_KEY`、`MINIMAX_API_KEY`、`MINIMAX_BASE_URL`、`MODEL` 等环境变量（多路径 fallback）
 > - **gkd 无字数阈值**: hash-based 触发，不设字数枷锁；空文本 `< 1 字` 跳过（防误触发）
 > - **Vision 配置看护**: Hermes `auxiliary.vision` 需 `provider: custom` + `model: qwen-vl-max` + DashScope key
 > - **mmx-cli 后备**: `npm install -g mmx-cli` + `mmx auth login`，图片上传时 OpenAI 主路径失败自动走 MiniMax 原生 VLM
@@ -737,23 +743,20 @@ POST /api/meetings/{id}/materials
 
 上传后自动：保存 Material 实体 → 文本类喂给 Hermes → 异步入 KB。
 
-**图片 Vision 分析管道 (v0.22.6, ADR-0054)**:
+**图片 Vision 分析管道 (v0.23.3, ADR-0060)**:
 
-图片上传后走三层后备链路：
+图片上传后通过百炼 DashScope qwen-vl-max 异步分析：
 
 ```
 图片文件上传
-  → 主路径: OpenAI /chat/completions (DashScope qwen-vl-max)
-  → 后备 1 (monkeypatch): resolve_runtime_provider 注入 → _create_openai_client(DashScope)
-  → 后备 2 (mmx-cli): mmx vision describe (MiniMax 原生 VLM, 不经过 Hermes)
-  → 结果追加到 chat (source: "vision-analysis") (v0.23.1: 不入 KB)
+  → 百炼 DashScope /chat/completions (qwen-vl-max → qwen-vl-plus fallback)
+  → 结果追加到 chat (source: "vision-analysis")
 ```
 
 | 通道 | 技术 | 触发条件 |
 |------|------|----------|
-| OpenAI 兼容 | DashScope `qwen-vl-max` `/chat/completions` | 主路径，有 `OPENAI_API_KEY` / `MINIMAX_API_KEY` 时 |
-| monkeypatch | Hermes `_resolve_custom_runtime` → `_create_openai_client` | AIAgent 创建前注入，防止路由到 OpenRouter |
-| mmx-cli | `mmx vision describe --image <file>` | 主路径失败 / 无 API key / 返回空结果时 |
+| DashScope | `qwen-vl-max` `/chat/completions` | 主路径，有 `DASHSCOPE_API_KEY` 时 |
+| qwen-vl-plus | `qwen-vl-plus` fallback | qwen-vl-max 不可用时自动降级 |
 
 图片分析完成后，描述文本通过 SSE `chat-message` 推送给客户端（`source: "vision-analysis"` 或 `"vision-analysis-mmx"`）。
 
@@ -994,12 +997,12 @@ GET /api/timeline
 | `/data/vpbuddy/server/data/experiences/` | 经验蒸馏 JSON |
 | `/data/vpbuddy/server/data/uploads/{mid}/` | 会议上传文件 (文本+图片原始文件) |
 | `/data/vpbuddy/server/data/meetings/stream/{mid}.stream.json` | 转写分段持久化记录 (v0.23.3, ADR-0059) |
-| `/root/.mmx/config.json` | mmx-cli 登录凭据 (MiniMax API key, ADR-0054) |
 
 ### 近期变更 (v0.23.3)
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| **v0.23.3** | **2026-07-21** | **两路 API Key 分离 (ADR-0060)**: 百炼 DASHSCOPE_API_KEY (ASR+Vision) + MiniMax MINIMAX_API_KEY (LLM Chat+6doc) + 删除 OPENAI_* + model 显式 fallback + start_vpbuddy.sh MODEL 同步 |
 | **v0.23.3** | **2026-07-18** | **ASR 分段持久化 (#45)**: `_persist_segment()` 幂等写入 `{mid}.stream.json` → `transcript_segments[]` + **RFC 5987 中文文件名下载 (#47)**: 3 个下载端点改用 `FileResponse(filename=)` 自动编码 + **E2E 测试加固**: task_manager 3 + fastapi_server 27 修复 |
 | v0.23.2 | 2026-07-18 | **Generation 去重 + Finalize 幂等 (ADR-0058)**: compute_input_hash + should_skip_generation + mark_finalized (.finalized) + idempotency key + demo 发布锁 (per-meeting Lock) + generation 记录跟踪 |
 | v0.22.8 | 2026-07-14 | **百炼自动重连**: idle timeout → restart_session() 静默重建 + **WS/SSE 解耦**: 暂停录音不再关SSE，会议保持活跃 + **停止按钮即时响应**: JS先设状态再await + **meeting-complete不覆盖暂停** + **agent sandbox prompt铁律**: 禁读宿主用户名/环境变量 + **delete 完善清理** uploads/KB/agent-cache/experience + **experience exclude_meeting_id** 防自我引用 + **handle_chat_upload补scope** + **stream_start保留转录** + **chat/图片非阻塞** run_in_executor + **图片上传强制触发doc重生成** |
