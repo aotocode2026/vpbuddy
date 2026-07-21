@@ -121,7 +121,7 @@
 | 飞书子 session prompt 泄露 VPBuddy 身份 | 子 agent prompt 改为"你是本次会议的助手"+ 数据隔离 | commit `c412abe` |
 | 客户端 `gpu.zhangshengdong.com` IPv6-only 域名在 V 家网 (IPv4 单栈) 解析不到 | LAN 直连 `http://192.168.10.63:8765` | 2026-07-01 |
 | Chroma 第一次 query 加载 embedding 模型 ~1s | 启动时预热 `get_rag().count()` | ADR-0019 |
-| 服务端手动 `vpbuddy ui` 重启 → 百炼 API key 丢失 → ASR 报 401 Unauthorized | **必须用 `bash run.sh` 启动** (注入 DASHSCOPE_API_KEY/BAILIAN_API_KEY) | 2026-07-12 |
+| 服务端手动 `vpbuddy ui` 重启 → 百炼 API key 丢失 → ASR 报 401 Unauthorized | **必须用 `bash start_vpbuddy.sh` 启动** (注入 DASHSCOPE_API_KEY/BAILIAN_API_KEY + MINIMAX_API_KEY) | 2026-07-12 |
 | WS `send_frame()` 失败时 `capturing.store(false)` 连带杀 SSE → demo 送达失败 | **SSE 独立 sse_active flag** + WS 失败只 break | 2026-07-12 |
 | E2E 测试 `test_fastapi_server.py` 27 项因 `RUN_E2E != 1` 长期跳过，修复后全因 401/auth 失败 | `/api/status` 需认证 (返回 401)，fixture 健康检查改用 `/healthz`；加 `fastapi_token` fixture 向本地 server 注册拿 token；KB 测试容错 chromadb 未装 | 2026-07-18 |
 | E2E `test_task_manager_e2e.py` 3 项因 defer 行为适配失败 — running 时 `submit()` 返回 `None` 而非替换 | `MeetingTaskQueue.submit()` 是 defer 模式 (running → return None, 完成后 kick)，修正测试预期 | 2026-07-18 |

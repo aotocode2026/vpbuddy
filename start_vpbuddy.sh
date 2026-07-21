@@ -21,27 +21,30 @@ echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
 # ── 0. 加载 API Key ──
+# 两路分离 (v0.23.4):
+#   百炼路: DASHSCOPE_API_KEY + BAILIAN_API_KEY → ASR + vision
+#   MiniMax路: MINIMAX_API_KEY + MINIMAX_BASE_URL → LLM chat + 6doc
 # 优先级: 环境变量 > /data/vpbuddy/.env > /data/vpbuddy/server/.env
 if [ -z "$DASHSCOPE_API_KEY" ]; then
     for envfile in /data/vpbuddy/.env /data/vpbuddy/server/.env; do
         if [ -f "$envfile" ]; then
-            source <(grep -E '^(DASHSCOPE_API_KEY|BAILIAN_API_KEY)=' "$envfile" | sed 's/^/export /')
+            source <(grep -E '^(DASHSCOPE_API_KEY|BAILIAN_API_KEY|MINIMAX_API_KEY|MINIMAX_BASE_URL|MODEL)=' "$envfile" | sed 's/^/export /')
         fi
     done
 fi
 
 if [ -z "$DASHSCOPE_API_KEY" ]; then
     echo "[错误] DASHSCOPE_API_KEY 未设置！"
-    echo "  请设置环境变量或在 /data/vpbuddy/.env 中配置"
+    echo "  请在 /data/vpbuddy/.env 中配置 DASHSCOPE_API_KEY=sk-ws-H.你的百炼key"
     exit 1
 fi
-echo "[0/5] API Key: ${DASHSCOPE_API_KEY:0:15}..."
+echo "[0/5] 百炼 Key: ${DASHSCOPE_API_KEY:0:15}..."
 
 # 衍生变量
 export BAILIAN_API_KEY="${BAILIAN_API_KEY:-$DASHSCOPE_API_KEY}"
-export OPENAI_API_KEY="$DASHSCOPE_API_KEY"
-export OPENAI_BASE_URL="https://dashscope.aliyuncs.com/compatible-mode/v1"
-export MINIMAX_API_KEY=""
+# MiniMax 默认值
+export MINIMAX_API_KEY="${MINIMAX_API_KEY:-}"
+export MINIMAX_BASE_URL="${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}"
 
 # ── 1. 杀 admin-dashboard（它会自动管理 vpbuddy，必须先杀）──
 echo "[1/5] 停止 admin-dashboard..."
@@ -92,12 +95,16 @@ fi
 echo "  ✓ 端口 $PORT 可用"
 
 # ── 4. 更新 .env 文件（防止 fastapi_app.py 的 os.environ force-overwrite 覆盖 export）──
+# v0.23.4: 两路分离 — 只同步百炼 + MiniMax 相关变量，不再有 OPENAI_*
 echo "[4/5] 同步 .env 文件..."
 for envfile in /data/vpbuddy/.env /data/vpbuddy/server/.env /data/vpbuddy/server/src/vpbuddy/server/.env; do
     if [ -f "$envfile" ]; then
         sed -i "s/^DASHSCOPE_API_KEY=.*/DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY/" "$envfile" 2>/dev/null || true
         sed -i "s/^BAILIAN_API_KEY=.*/BAILIAN_API_KEY=$BAILIAN_API_KEY/" "$envfile" 2>/dev/null || true
-        sed -i "s/^OPENAI_API_KEY=.*/OPENAI_API_KEY=$OPENAI_API_KEY/" "$envfile" 2>/dev/null || true
+        [ -n "$MINIMAX_API_KEY" ] && sed -i "s/^MINIMAX_API_KEY=.*/MINIMAX_API_KEY=$MINIMAX_API_KEY/" "$envfile" 2>/dev/null || true
+        [ -n "$MINIMAX_BASE_URL" ] && sed -i "s/^MINIMAX_BASE_URL=.*/MINIMAX_BASE_URL=$MINIMAX_BASE_URL/" "$envfile" 2>/dev/null || true
+        # 删除不再使用的 OPENAI_* 行
+        sed -i "/^OPENAI_API_KEY=/d; /^OPENAI_BASE_URL=/d" "$envfile" 2>/dev/null || true
     fi
 done
 echo "  ✓ .env 文件已同步"

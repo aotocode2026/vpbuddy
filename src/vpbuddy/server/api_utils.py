@@ -369,12 +369,12 @@ def _get_chat_agent(meeting_id: str):
             platform="subagent",
             quiet_mode=True,
             max_iterations=20,
-            # 2026-07-04 (ADR-0041): 跟 doc agent 统一用 OPENAI_BASE_URL, 不用 VPBUDDY_LLM_API_BASE.
-            # 这样 chat 和 doc 走同一个 LLM endpoint, parent_session_id fork 时 provider 一致.
-            # ADR-0049: 模型从 .env MODEL=minimax-m3 (Hermes 统一配置)
-            model=os.environ.get("MODEL"),
-            base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("VPBUDDY_LLM_API_BASE", "http://localhost:11434/v1"),
-            api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("MINIMAX_API_KEY"),
+            # 2026-07-04 (ADR-0041): 跟 doc agent 统一走 MiniMax endpoint.
+            # 这样 chat 和 doc 走同一个 LLM, parent_session_id fork 时 provider 一致.
+            # v0.23.4: LLM 切 MINIMAX_API_KEY + MINIMAX_BASE_URL，模型由 Hermes 定.
+            model=None,
+            base_url=os.environ.get("MINIMAX_BASE_URL"),
+            api_key=os.environ.get("MINIMAX_API_KEY"),
             # ADR-0049: 不传 model — Hermes AIAgent 从 .env MODEL=minimax-m3 自己读
             ephemeral_system_prompt="\n".join([
                 "你是 VPBuddy 的 VP Chat 主控 agent。",
@@ -496,10 +496,10 @@ def _get_clean_agent(meeting_id: str):
             platform="subagent",
             quiet_mode=True,
             max_iterations=10,
-            # ADR-0049: 模型从 .env MODEL=minimax-m3 (Hermes 统一配置)
-            model=os.environ.get("MODEL"),
-            base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("VPBUDDY_LLM_API_BASE", "http://localhost:11434/v1"),
-            api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("MINIMAX_API_KEY"),
+            # v0.23.4: LLM 切 MINIMAX_API_KEY + MINIMAX_BASE_URL
+            model=None,
+            base_url=os.environ.get("MINIMAX_BASE_URL"),
+            api_key=os.environ.get("MINIMAX_API_KEY"),
             ephemeral_system_prompt=prompt_template,
         )
         return _CLEAN_AGENT_CACHE[session_id]

@@ -136,19 +136,18 @@ def _get_or_create_agent(meeting_id: str, doc_kind: str) -> Any:
             # ⚠️ 2026-06-23 bug 修: 之前写 ephemeral_system_prompt=(...) 多行 tuple
             # Python 自动变 tuple, AIAgent chat 时 str + tuple 报错 TypeError
             # 用 "\n".join([...]) 强制 str
-            # 2026-07-04: 显式把 OPENAI_BASE_URL + OPENAI_API_KEY env 透传给 AIAgent,
+            # 2026-07-04: 显式把 MINIMAX_BASE_URL + MINIMAX_API_KEY env 透传给 AIAgent,
             # 否则 hermes 默认走 openrouter → MiniMax-M3 也被路由过去但 openrouter
             # 不识别我们的 MiniMax API key → HTTP 401. 现在直连 MiniMax endpoint.
             #
             # 2026-07-12: Hermes vision tool 路由修复（ADR-0054）。
             # 根因: resolve_runtime_provider("custom") 硬返回 OpenRouter（来源 /etc/environment OPENROUTER_API_KEY，
             # Hermes 凭据池 build 时固化），导致 _resolve_custom_runtime → _try_custom_endpoint → None →
-            # fallback 到 Anthropic SDK → 用全局 OPENAI_API_KEY (MiniMax) 打 api.anthropic.com → 401。
-            # DashScope 支持 OpenAI chat/completions (200) 但不支持 Anthropic messages (404) —
-            # 唯一可行路径: _try_custom_endpoint() → _create_openai_client(DashScope key, DashScope URL)。
+            # fallback 到 Anthropic SDK → 401。
             #
             # 修复: os.environ.pop OPENROUTER_API_KEY + monkeypatch resolve_runtime_provider →
-            # 返回 None → _resolve_custom_runtime 走 env fallback → 读 OPENAI_API_KEY/BASE_URL (VPBuddy .env= DashScope)。
+            # 返回 None → _resolve_custom_runtime 走 env fallback → 读 MINIMAX_API_KEY/BASE_URL。
+            # v0.23.4: OPENAI_API_KEY 已删除，LLM 现在直接走 MINIMAX_API_KEY + MINIMAX_BASE_URL。
             _OPENROUTER_BAK = os.environ.pop("OPENROUTER_API_KEY", None)
             try:
                 from hermes_cli import runtime_provider as _rhp
@@ -174,10 +173,10 @@ def _get_or_create_agent(meeting_id: str, doc_kind: str) -> Any:
                     platform="subagent",
                     quiet_mode=True,
                     max_iterations=30,
-                    # ADR-0049: 模型从 .env MODEL=minimax-m3 (Hermes 统一配置)
-                    model=os.environ.get("MODEL"),
-                    base_url=os.environ.get("OPENAI_BASE_URL") or os.environ.get("VPBUDDY_LLM_API_BASE"),
-                    api_key=os.environ.get("OPENAI_API_KEY") or os.environ.get("MINIMAX_API_KEY"),
+                    # ADR-0049: LLM 走 MiniMax，模型由 Hermes 自己定 (MODEL env，默认 minimax-m3)
+                    model=None,  # 不传 model，让 Hermes 从 .env MODEL 读
+                    base_url=os.environ.get("MINIMAX_BASE_URL"),
+                    api_key=os.environ.get("MINIMAX_API_KEY"),
                 )
 
                 if doc_kind == "batch_docs":

@@ -68,17 +68,23 @@ cd server
 vim /data/vpbuddy/.env
 ```
 
-在文件中找到 `DASHSCOPE_API_KEY=` 这一行，把等号后面的值换成你的百炼 API Key：
+填入两个 key（百炼 + MiniMax，两路分离）：
 
 ```bash
-# 改这一行即可 —— 启动脚本会自动同步到其他 .env 文件
+# 百炼 — ASR 实时语音识别 + 图片分析
 DASHSCOPE_API_KEY=sk-ws-H.你的百炼key
+BAILIAN_API_KEY=sk-ws-H.你的百炼key    # 同上，fallback
+
+# MiniMax — LLM 对话（chat + 6文档生成）
+MINIMAX_API_KEY=你的minimax_key
+MINIMAX_BASE_URL=https://api.minimax.chat/v1
 ```
 
-> **API Key 获取方式**：登录 [阿里云百炼控制台](https://bailian.console.aliyun.com/) → 左侧「API Key 管理」→ 创建新的 API Key。
-> 注意选择 **websocket** 类型的 key（`sk-ws-H.` 开头），这是实时语音识别所必需的。
+> **百炼 API Key 获取**：登录 [阿里云百炼控制台](https://bailian.console.aliyun.com/) → 左侧「API Key 管理」→ 创建新的 API Key。注意选 **websocket** 类型（`sk-ws-H.` 开头），实时语音识别必需。
+>
+> **MiniMax API Key 获取**：登录 [MiniMax 开放平台](https://platform.minimax.io/) → API Key 管理。
 
-**启动脚本会自动把 key 同步到这些位置（你不用手动改）：**
+**启动脚本会自动同步到所有 .env 文件（你不用手动改）：**
 | 文件 | 用途 | 是否需手动改 |
 |------|------|:---:|
 | `/data/vpbuddy/.env` | **主配置（唯一需改的）** | **是** |

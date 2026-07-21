@@ -49,15 +49,6 @@ if _env_file and _env_file.exists():
             _count += 1
     print(f"[fastapi_app] loaded {_count} vars from {_env_file}", flush=True)
 
-# v0.22.6: vision 工具依赖 OPENAI_API_KEY / OPENAI_BASE_URL 走 _try_custom_endpoint → DashScope
-# 当 .env 路径解析到旧文件或缺变量时，从 DASHSCOPE_API_KEY 兜底推导
-if not os.environ.get("OPENAI_API_KEY"):
-    _fallback = os.environ.get("DASHSCOPE_API_KEY", "")
-    if _fallback:
-        os.environ.setdefault("OPENAI_API_KEY", _fallback)
-        os.environ.setdefault("OPENAI_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
-        print("[fastapi_app] OPENAI_API_KEY/BASE_URL fallback from DASHSCOPE_API_KEY", flush=True)
-
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
@@ -920,52 +911,45 @@ async def post_meeting_material(meeting_id: str, request: Request, user: dict = 
                     except Exception: pass
 
         # 异步 vision 分析: 后台线程处理, 完成后追加到 chat
+        # v0.23.4: vision 走百炼 DashScope（qwen-vl-max → qwen-vl-plus fallback），不再走 MiniMax
         def _run_vision_async():
             try:
-                base_url = os.environ.get("OPENAI_BASE_URL", "https://api.minimax.chat/v1")
-                api_key = os.environ.get("OPENAI_API_KEY") or os.environ.get("MINIMAX_API_KEY") or ""
-                if not api_key:
-                    try:
-                        with open(os.environ.get("HERMES_ENV_PATH", os.path.expanduser("~/.hermes/.env"))) as _f:
-                            for _line in _f:
-                                if "=" in _line and not _line.strip().startswith("#"):
-                                    _k, _v = _line.strip().split("=", 1)
-                                    if _k in ("OPENAI_API_KEY", "MINIMAX_API_KEY"):
-                                        api_key = _v.strip()
-                                        break
-                    except Exception:
-                        pass
-
-                if not api_key:
-                    print(f"[materials] Vision 跳过: 无 API key, 尝试 mmx-cli 后备")
-                    vision_text = _try_mmx_vision(file_data, file_ct or "image/png")
-                    if not vision_text:
-                        return
+                _ds_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("BAILIAN_API_KEY", "")
+                _ds_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+                if not _ds_key:
+                    print(f"[materials] Vision 跳过: 无 DASHSCOPE_API_KEY")
+                    return
 
                 import requests as _requests
-                _vresp = _requests.post(
-                    f"{base_url}/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={
-                        "model": os.environ.get("MODEL", "minimax-m3"),
-                        "messages": [{
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": "请详细描述这张图片的内容，提取所有可识别的文字信息。"},
-                                {"type": "image_url", "image_url": {
-                                    "url": f"data:{file_ct or 'image/png'};base64,{_base64.b64encode(file_data).decode()}"
-                                }},
-                            ],
-                        }],
-                        "max_tokens": 2000,
-                    },
-                    timeout=60,
-                )
-                vision_text = _vresp.json().get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+                for _vl_model in ["qwen-vl-max", "qwen-vl-plus"]:
+                    try:
+                        _vresp = _requests.post(
+                            f"{_ds_url}/chat/completions",
+                            headers={"Authorization": f"Bearer {_ds_key}", "Content-Type": "application/json"},
+                            json={
+                                "model": _vl_model,
+                                "messages": [{
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": "请详细描述这张图片的内容，提取所有可识别的文字信息。"},
+                                        {"type": "image_url", "image_url": {
+                                            "url": f"data:{file_ct or 'image/png'};base64,{_base64.b64encode(file_data).decode()}"
+                                        }},
+                                    ],
+                                }],
+                                "max_tokens": 2000,
+                            },
+                            timeout=60,
+                        )
+                        if _vresp.status_code == 200:
+                            vision_text = _vresp.json().get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+                            if vision_text:
+                                break
+                    except Exception:
+                        continue
 
-                # v0.22.6 后备: mmx vision describe (MiniMax 原生 VLM)
                 if not vision_text:
-                    print(f"[materials] Vision OpenAI 主路径无结果, 尝试 mmx-cli 后备")
+                    print(f"[materials] Vision 百炼主路径无结果, 尝试 mmx-cli 后备")
                     vision_text = _try_mmx_vision(file_data, file_ct or "image/png")
 
                 if vision_text:
