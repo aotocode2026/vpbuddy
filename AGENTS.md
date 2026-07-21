@@ -125,6 +125,7 @@
 | WS `send_frame()` 失败时 `capturing.store(false)` 连带杀 SSE → demo 送达失败 | **SSE 独立 sse_active flag** + WS 失败只 break | 2026-07-12 |
 | E2E 测试 `test_fastapi_server.py` 27 项因 `RUN_E2E != 1` 长期跳过，修复后全因 401/auth 失败 | `/api/status` 需认证 (返回 401)，fixture 健康检查改用 `/healthz`；加 `fastapi_token` fixture 向本地 server 注册拿 token；KB 测试容错 chromadb 未装 | 2026-07-18 |
 | E2E `test_task_manager_e2e.py` 3 项因 defer 行为适配失败 — running 时 `submit()` 返回 `None` 而非替换 | `MeetingTaskQueue.submit()` 是 defer 模式 (running → return None, 完成后 kick)，修正测试预期 | 2026-07-18 |
+| `AIAgent(model=None)` → MiniMax 报 `unknown model '' (2013)` | `start_vpbuddy.sh` 未同步 MODEL，`model=None` 传到 MiniMax 为空字符串 | **改为 `model=os.environ.get("MODEL", "minimax-m3")` 显式 fallback** (ADR-0060)；`start_vpbuddy.sh` 新增 MODEL 同步 | 2026-07-21 |
 | `DocTaskManager.submit()` 加了 `should_skip_generation()` 入口检查后，E2E 测试因相同 hash 被去重返回 `None` | E2E 测试用独立 meeting_id 避免冲突；裸 lambda runner 不走 `complete_generation` 所以 hash 不变也 OK | 2026-07-18 |
 | 旧 `test_e2e_integration.py` import vpbuddy 内部模块 (loopback, sub_session_controller)，不是 HTTP 测试，无法从本地测试远程服务端 | 废弃旧文件 (pytest.mark.skip)，重写为 `test_e2e_http.py` — 纯 urllib HTTP 调用远程 API，28 项，session-scoped fixture 防 429 | 2026-07-18 |
 

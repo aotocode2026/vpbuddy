@@ -133,7 +133,7 @@ r = agent.chat('用 10 字以内回答: 你是谁')
 print(r[:200])
 "
 # 应输出: agent.base_url: https://api.minimax.chat/v1
-#         agent.api_key[:30]: sk-cp-9kYBvYNkjlwpOA3TMa41-RQs
+#         agent.api_key[:30]: sk-cp-**** (已脱敏)
 #         我是 Hermes 助手
 ```
 

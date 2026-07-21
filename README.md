@@ -78,6 +78,7 @@ BAILIAN_API_KEY=sk-ws-H.你的百炼key    # 同上，fallback
 # MiniMax — LLM 对话（chat + 6文档生成）
 MINIMAX_API_KEY=你的minimax_key
 MINIMAX_BASE_URL=https://api.minimax.chat/v1
+MODEL=minimax-m3                       # LLM 模型名
 ```
 
 > **百炼 API Key 获取**：登录 [阿里云百炼控制台](https://bailian.console.aliyun.com/) → 左侧「API Key 管理」→ 创建新的 API Key。注意选 **websocket** 类型（`sk-ws-H.` 开头），实时语音识别必需。

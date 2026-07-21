@@ -173,8 +173,8 @@ def _get_or_create_agent(meeting_id: str, doc_kind: str) -> Any:
                     platform="subagent",
                     quiet_mode=True,
                     max_iterations=30,
-                    # ADR-0049: LLM 走 MiniMax，模型由 Hermes 自己定 (MODEL env，默认 minimax-m3)
-                    model=None,  # 不传 model，让 Hermes 从 .env MODEL 读
+                    # ADR-0049: LLM 走 MiniMax，默认 minimax-m3
+                    model=os.environ.get("MODEL", "minimax-m3"),
                     base_url=os.environ.get("MINIMAX_BASE_URL"),
                     api_key=os.environ.get("MINIMAX_API_KEY"),
                 )

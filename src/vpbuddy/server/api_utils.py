@@ -371,11 +371,10 @@ def _get_chat_agent(meeting_id: str):
             max_iterations=20,
             # 2026-07-04 (ADR-0041): 跟 doc agent 统一走 MiniMax endpoint.
             # 这样 chat 和 doc 走同一个 LLM, parent_session_id fork 时 provider 一致.
-            # v0.23.4: LLM 切 MINIMAX_API_KEY + MINIMAX_BASE_URL，模型由 Hermes 定.
-            model=None,
+            # v0.23.4: LLM 切 MINIMAX_API_KEY + MINIMAX_BASE_URL
+            model=os.environ.get("MODEL", "minimax-m3"),
             base_url=os.environ.get("MINIMAX_BASE_URL"),
             api_key=os.environ.get("MINIMAX_API_KEY"),
-            # ADR-0049: 不传 model — Hermes AIAgent 从 .env MODEL=minimax-m3 自己读
             ephemeral_system_prompt="\n".join([
                 "你是 VPBuddy 的 VP Chat 主控 agent。",
                 f"session_id 固定 = {session_id}。",
@@ -497,7 +496,7 @@ def _get_clean_agent(meeting_id: str):
             quiet_mode=True,
             max_iterations=10,
             # v0.23.4: LLM 切 MINIMAX_API_KEY + MINIMAX_BASE_URL
-            model=None,
+            model=os.environ.get("MODEL", "minimax-m3"),
             base_url=os.environ.get("MINIMAX_BASE_URL"),
             api_key=os.environ.get("MINIMAX_API_KEY"),
             ephemeral_system_prompt=prompt_template,

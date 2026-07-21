@@ -103,6 +103,7 @@ for envfile in /data/vpbuddy/.env /data/vpbuddy/server/.env /data/vpbuddy/server
         sed -i "s/^BAILIAN_API_KEY=.*/BAILIAN_API_KEY=$BAILIAN_API_KEY/" "$envfile" 2>/dev/null || true
         [ -n "$MINIMAX_API_KEY" ] && sed -i "s/^MINIMAX_API_KEY=.*/MINIMAX_API_KEY=$MINIMAX_API_KEY/" "$envfile" 2>/dev/null || true
         [ -n "$MINIMAX_BASE_URL" ] && sed -i "s/^MINIMAX_BASE_URL=.*/MINIMAX_BASE_URL=$MINIMAX_BASE_URL/" "$envfile" 2>/dev/null || true
+        [ -n "$MODEL" ] && sed -i "s/^MODEL=.*/MODEL=$MODEL/" "$envfile" 2>/dev/null || true
         # 删除不再使用的 OPENAI_* 行
         sed -i "/^OPENAI_API_KEY=/d; /^OPENAI_BASE_URL=/d" "$envfile" 2>/dev/null || true
     fi
