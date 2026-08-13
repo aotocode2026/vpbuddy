@@ -27,27 +27,13 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 from urllib.parse import parse_qs, urlparse
 
-# ── 加载 .env 文件 (优先级低于已有的 env var) ──
-# 尝试多个路径: 同目录 > 项目根 > data目录上级 (兼容 editable install)
-_env_candidates = [
-    Path(__file__).resolve().parent / ".env",
-    Path(__file__).resolve().parents[2] / ".env",
-    Path(os.environ.get("VPBUDDY_DATA_DIR", "")).parents[1] / ".env" if os.environ.get("VPBUDDY_DATA_DIR") else None,
-]
-_env_file = None
-for _c in _env_candidates:
-    if _c and _c.exists():
-        _env_file = _c
-        break
-if _env_file and _env_file.exists():
-    _count = 0
-    for _line in _env_file.read_text().split("\n"):
-        _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _k, _v = _line.split("=", 1)
-            os.environ[_k.strip()] = _v.strip().strip("'").strip('"')
-            _count += 1
-    print(f"[fastapi_app] loaded {_count} vars from {_env_file}", flush=True)
+# Load legacy env files before importing modules that snapshot provider keys.
+# Docker/process environment variables take precedence (override=False).
+from .runtime_config import load_runtime_environment
+
+_env_file = load_runtime_environment()
+if _env_file:
+    print(f"[fastapi_app] loaded fallback vars from {_env_file}", flush=True)
 
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
@@ -228,6 +214,12 @@ async def startup_warmup():
         __version__ = "unknown"
     logger.info("VPBuddy FastAPI server starting (version=%s)", __version__)
     print(f"[fastapi_app] startup: VPBuddy FastAPI v{__version__}", flush=True)
+
+    from .runtime_config import provider_readiness
+
+    readiness = provider_readiness()
+    if not readiness["ready"]:
+        logger.error("AI provider configuration is incomplete: %s", readiness)
 
     # KB Chroma 预热
     try:
@@ -573,8 +565,17 @@ def get_kb_doc_file(doc_id: str, user: dict = Depends(get_current_user)):
 
 @app.get("/healthz")
 def get_healthz():
-    """GET /healthz — 健康检查 (无需认证)"""
+    """GET /healthz — process liveness only (无需认证)."""
     return {"ok": True}
+
+
+@app.get("/readyz")
+def get_readyz():
+    """GET /readyz — secret-free AI provider configuration readiness."""
+    from .runtime_config import provider_readiness
+
+    readiness = provider_readiness()
+    return JSONResponse(status_code=200 if readiness["ready"] else 503, content=readiness)
 
 
 @app.get("/api/status")

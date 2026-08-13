@@ -43,6 +43,21 @@ _file_lock_global = threading.Lock()
 _CLEAN_AGENT_CACHE: dict[str, Any] = {}
 _CLEAN_AGENT_LOCK = threading.Lock()
 
+_PROVIDER_ERROR_MARKERS = (
+    "http 400",
+    "http 401",
+    "http 403",
+    "access denied",
+    "invalid api key",
+    "authentication_error",
+    "unknown model",
+)
+
+
+def _is_provider_error_response(content: str) -> bool:
+    normalized = (content or "").strip().lower()
+    return any(marker in normalized for marker in _PROVIDER_ERROR_MARKERS)
+
 
 def _evict_locks_if_needed() -> None:
     """当锁数量超过 _MAX_LOCKS 时, 淘汰最久未访问的一半."""
@@ -426,7 +441,10 @@ def _run_vp_chat(meeting_id: str, message: str, client_context: dict[str, Any] |
             return {"status": "timeout", "error": "AIAgent timeout"}
         if holder["error"]:
             return {"status": "error", "error": f"{type(holder['error']).__name__}: {str(holder['error'])[:300]}"}
-        return {"status": "ok", "content": str(holder["response"] or "").strip()}
+        content = str(holder["response"] or "").strip()
+        if _is_provider_error_response(content):
+            return {"status": "provider_error", "error": content[:300]}
+        return {"status": "ok", "content": content}
 
     result = _do_chat(prompt)
 
@@ -450,15 +468,12 @@ def _run_vp_chat(meeting_id: str, message: str, client_context: dict[str, Any] |
             "content": "Hermes VP Chat 暂时超时。当前输入已记录,但未完成 Hermes 上下文推理或子 agent 调度。",
             "error": "AIAgent timeout (retry also failed)",
         }
-    if result["status"] == "error":
+    if result["status"] in {"error", "provider_error"}:
         return {
-            "status": "fallback",
-            "source": "fallback",
-            "content": (
-                "Hermes VP Chat 当前不可用。输入已记录,服务端没有静默执行外部动作。"
-                "请确认 run_agent/AIAgent 或 hermes 运行环境可用后重试。"
-            ),
-            "error": result.get("error", "unknown"),
+            "status": "provider_error" if result["status"] == "provider_error" else "fallback",
+            "source": "provider-error" if result["status"] == "provider_error" else "fallback",
+            "content": "AI 服务配置异常，当前消息未生成有效回答。请联系管理员检查模型配置。",
+            "error": "provider_auth_or_model_error" if result["status"] == "provider_error" else result.get("error", "unknown"),
         }
     return {
         "status": "ok",

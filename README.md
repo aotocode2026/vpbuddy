@@ -81,6 +81,23 @@ MINIMAX_BASE_URL=https://api.minimax.chat/v1
 MODEL=minimax-m3                       # LLM 模型名
 ```
 
+Docker Compose 会在创建容器时显式注入以上变量。项目根目录 `.env` 仅供 Compose 变量替换，不会被复制进镜像；`.dockerignore` 会排除真实密钥。
+
+```bash
+# 首次启动或修改 key 后重建容器
+docker compose up -d --build --force-recreate
+
+# 进程存活检查
+curl http://127.0.0.1:8765/healthz
+
+# 两路 AI 配置 readiness；正常返回 HTTP 200 + ready=true
+curl -i http://127.0.0.1:8765/readyz
+```
+
+`docker restart` 会保留创建容器时的环境变量；`docker compose down/up` 或其他重建流程会重新读取 Compose 配置。不要只在临时 shell 中 `export` key 后创建一个无法复现的容器。
+
+回滚代码时不要删除 `vpbuddy_data` 卷；回到上一提交后重新执行 `docker compose up -d --build --force-recreate` 即可保留账号、会议和交付物数据。
+
 > **百炼 API Key 获取**：登录 [阿里云百炼控制台](https://bailian.console.aliyun.com/) → 左侧「API Key 管理」→ 创建新的 API Key。注意选 **websocket** 类型（`sk-ws-H.` 开头），实时语音识别必需。
 >
 > **MiniMax API Key 获取**：登录 [MiniMax 开放平台](https://platform.minimax.io/) → API Key 管理。

@@ -25,13 +25,18 @@ echo ""
 #   百炼路: DASHSCOPE_API_KEY + BAILIAN_API_KEY → ASR + vision
 #   MiniMax路: MINIMAX_API_KEY + MINIMAX_BASE_URL → LLM chat + 6doc
 # 优先级: 环境变量 > /data/vpbuddy/.env > /data/vpbuddy/server/.env
-if [ -z "$DASHSCOPE_API_KEY" ]; then
+for key in DASHSCOPE_API_KEY BAILIAN_API_KEY MINIMAX_API_KEY MINIMAX_BASE_URL MODEL; do
+    [ -n "${!key:-}" ] && continue
     for envfile in /data/vpbuddy/.env /data/vpbuddy/server/.env; do
-        if [ -f "$envfile" ]; then
-            source <(grep -E '^(DASHSCOPE_API_KEY|BAILIAN_API_KEY|MINIMAX_API_KEY|MINIMAX_BASE_URL|MODEL)=' "$envfile" | sed 's/^/export /')
+        [ -f "$envfile" ] || continue
+        value=$("$VENV/bin/python" -c 'from dotenv import dotenv_values; import sys; print(dotenv_values(sys.argv[1]).get(sys.argv[2], "") or "")' "$envfile" "$key")
+        if [ -n "$value" ]; then
+            printf -v "$key" '%s' "$value"
+            export "$key"
+            break
         fi
     done
-fi
+done
 
 if [ -z "$DASHSCOPE_API_KEY" ]; then
     echo "[错误] DASHSCOPE_API_KEY 未设置！"
@@ -43,8 +48,12 @@ echo "[0/5] 百炼 Key: ${DASHSCOPE_API_KEY:0:15}..."
 # 衍生变量
 export BAILIAN_API_KEY="${BAILIAN_API_KEY:-$DASHSCOPE_API_KEY}"
 # MiniMax 默认值
-export MINIMAX_API_KEY="${MINIMAX_API_KEY:-}"
 export MINIMAX_BASE_URL="${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}"
+export MODEL="${MODEL:-minimax-m3}"
+if [ -z "$MINIMAX_API_KEY" ]; then
+    echo "[ERROR] MINIMAX_API_KEY is required for Chat and deliverables."
+    exit 1
+fi
 
 # ── 1. 杀 admin-dashboard（它会自动管理 vpbuddy，必须先杀）──
 echo "[1/5] 停止 admin-dashboard..."
@@ -124,7 +133,7 @@ echo "  → 日志: $LOG_FILE"
 echo -n "  → 等待服务就绪"
 for i in $(seq 1 30); do
     sleep 2
-    CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/healthz" 2>/dev/null || echo "000")
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/readyz" 2>/dev/null || echo "000")
     if [ "$CODE" = "200" ]; then
         echo ""
         echo ""

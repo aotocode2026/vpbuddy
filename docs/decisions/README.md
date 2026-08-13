@@ -77,6 +77,7 @@
 | [0031](./0031-Phase7-客户端双轨采集-stub落地.md) | **Phase 7 客户端双轨采集 stub 落地 (microphone/loopback/both)** | Accepted (Stub) → Superseded by 0032 | 2026-07-02 |
 | [0032](./0032-Phase7-跨平台loopback真实现.md) | **Phase 7 跨平台 loopback 真实现 (Linux PulseAudio mon / macOS BlackHole / Windows v0.9.x)** | Accepted | 2026-07-02 |
 | [0033](./0033-e2e_realtime-fixture-wait-server.md) | **e2e_realtime fixture 轮询 wait — 修 daemon-required test 自 v0.7.x 起 broken** | Accepted | 2026-07-02 |
+| [0061](./0061-Docker重建后AI配置恢复与readiness.md) | **Docker 重建后 AI 配置恢复与 readiness** | Accepted | 2026-08-13 |
 
 ## 更新原则 (2026-06-23 张胜东立的铁律)
 

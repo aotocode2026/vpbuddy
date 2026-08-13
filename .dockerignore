@@ -1,0 +1,16 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+data/
+docs/*/demo/
+samples/
+screenshots/
+vpbuddy-client/node_modules/
+vpbuddy-client/src-tauri/target/

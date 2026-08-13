@@ -1,6 +1,7 @@
 |> **说明**:本文档是 VPBuddy 产品说明书的当前版本。
 |> 
 |> **版本历史**:
+|> - **v2.10** (2026-08-13): **v0.23.4 — Docker AI 配置恢复 + readiness**: 容器重建后百炼/MiniMax 两路配置均恢复；Docker 环境优先；`/readyz` 可区分核心 AI 能力是否就绪。详见 [ADR-0061](../decisions/0061-Docker重建后AI配置恢复与readiness.md)
 |> - **v2.9** (2026-07-21): **v0.23.3 — 两路 API Key 彻底分离 + Model 显式 Fallback**: 百炼管 ASR+Vision (DASHSCOPE_API_KEY)，MiniMax 管 LLM (MINIMAX_API_KEY)；删除所有 OPENAI_API_KEY；model=None → 显式 minimax-m3；start_vpbuddy.sh 新增 MODEL 同步 详见 [ADR-0060](../decisions/0060-两路API-key分离-model显式fallback.md)
 |> - **v2.8** (2026-07-18): **v0.23.2 — ASR 转写分段持久化 + RFC 5987 中文文件名下载 + Generation 去重**: `_persist_segment()` 幂等写入 `{mid}.stream.json` 转写分段不丢失；3 个下载端点 RFC 5987 自动编码中文文件名不再断连；输入哈希去重 + `.finalized` 持久化 + demo 发布锁 详见 [ADR-0059](../decisions/0059-asr-segment-persistence-rfc5987-download.md) · [ADR-0058](../decisions/0058-generation-dedup-idempotency.md)
 |> - **v2.7** (2026-07-14): **v0.22.8 — 录音稳定性三修 + 数据安全加固**: 百炼 ASR 自动重连、`stream_start` 断线重连保留转录、图片/对话上传非阻塞；Agent 铁律增强、会议删除彻底清理、经验蒸馏自排除；WS/SSE 解耦 + 停止录音按钮即时响应
@@ -28,9 +29,9 @@
 
 ---
 
-# VPBuddy 产品说明书 v2.9
+# VPBuddy 产品说明书 v2.10
 
-> **v2.9** (2026-07-21 修订 — **v0.23.3**): 两路 API Key 彻底分离（百炼 ASR+Vision / MiniMax LLM）。详见 [总体架构 v1.53](../design/总体架构.md) + ADR-0060。
+> **v2.10** (2026-08-13 修订 — **v0.23.4**): Docker 重建后两路 AI 配置可恢复，增加独立 readiness。详见 [总体架构 v1.54](../design/总体架构.md) + ADR-0061。
 
 > **历史版本**:v1.0-v1.13 已归档删除。
 

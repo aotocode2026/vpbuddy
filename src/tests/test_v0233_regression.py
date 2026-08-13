@@ -13,6 +13,13 @@ from pathlib import Path
 
 import pytest
 
+
+def test_provider_http_error_is_not_treated_as_success():
+    from vpbuddy.server.api_utils import _is_provider_error_response
+
+    assert _is_provider_error_response("HTTP 400: Access denied") is True
+    assert _is_provider_error_response("正常的会议总结") is False
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 

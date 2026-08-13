@@ -1,0 +1,21 @@
+services:
+  vpbuddy:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      VPBUDDY_ENV: production
+      VPBUDDY_DATA_DIR: /var/lib/vpbuddy/meetings
+      VPBUDDY_DOCS_DIR: /var/lib/vpbuddy/docs
+      VPBUDDY_JWT_SECRET: "${VPBUDDY_JWT_SECRET:?set VPBUDDY_JWT_SECRET in .env}"
+      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:?set DASHSCOPE_API_KEY in .env}"
+      BAILIAN_API_KEY: "${BAILIAN_API_KEY:-}"
+      MINIMAX_API_KEY: "${MINIMAX_API_KEY:?set MINIMAX_API_KEY in .env}"
+      MINIMAX_BASE_URL: "${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}"
+      MODEL: "${MODEL:-minimax-m3}"
+    volumes:
+      - vpbuddy_data:/var/lib/vpbuddy
+    restart: unless-stopped
+
+volumes:
+  vpbuddy_data:
