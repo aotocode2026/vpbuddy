@@ -1,147 +1,188 @@
-#!/bin/bash
-# ╔══════════════════════════════════════════════════════════════╗
-# ║  VPBuddy 一键启动脚本                                         ║
-# ║  用法: bash start_vpbuddy.sh                                 ║
-# ║  功能: 杀旧进程 → 释放端口 → 设环境变量 → 启动 → 健康检查      ║
-# ║  最后更新: 2026-07-20                                        ║
-# ╚══════════════════════════════════════════════════════════════╝
+#!/usr/bin/env bash
+# VPBuddy deployment launcher.
+# The persistent configuration source is /data/vpbuddy/.env.  The checkout-local
+# .env is an exact, verified copy so replacing /data/vpbuddy/server is safe.
 
-set -e
+set -euo pipefail
 
-PORT=8765
-VPBUDDY_DIR="/data/vpbuddy/server"
-VENV="/data/vpbuddy/venv"
-LOG_DIR="/data/vpbuddy/logs"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-LOG_FILE="$LOG_DIR/startup_$TIMESTAMP.log"
+PORT="${VPBUDDY_PORT:-8765}"
+VPBUDDY_DIR="${VPBUDDY_DIR:-/data/vpbuddy/server}"
+VENV="${VPBUDDY_VENV:-/data/vpbuddy/venv}"
+LOG_DIR="${VPBUDDY_LOG_DIR:-/data/vpbuddy/logs}"
+MASTER_ENV="${VPBUDDY_MASTER_ENV:-/data/vpbuddy/.env}"
+SERVER_ENV="$VPBUDDY_DIR/.env"
+SYNC_ONLY=false
+
+if [[ "${1:-}" == "--sync-env-only" ]]; then
+    SYNC_ONLY=true
+elif [[ $# -gt 0 ]]; then
+    echo "[错误] 未知参数: $1" >&2
+    echo "用法: bash start_vpbuddy.sh [--sync-env-only]" >&2
+    exit 2
+fi
+
+sync_env() {
+    local target_dir temp_env
+
+    if [[ ! -f "$MASTER_ENV" || ! -r "$MASTER_ENV" ]]; then
+        echo "[错误] 主配置文件不存在或不可读: $MASTER_ENV" >&2
+        return 1
+    fi
+    if [[ ! -d "$VPBUDDY_DIR" ]]; then
+        echo "[错误] Server 目录不存在: $VPBUDDY_DIR" >&2
+        return 1
+    fi
+
+    target_dir=$(dirname "$SERVER_ENV")
+    temp_env=$(mktemp "$target_dir/.env.tmp.XXXXXX") || {
+        echo "[错误] 无法在 $target_dir 创建临时配置文件" >&2
+        return 1
+    }
+    trap 'rm -f "${temp_env:-}"' RETURN
+
+    if ! install -m 600 "$MASTER_ENV" "$temp_env"; then
+        echo "[错误] 无法复制 $MASTER_ENV" >&2
+        return 1
+    fi
+    if ! cmp -s "$MASTER_ENV" "$temp_env"; then
+        echo "[错误] 临时配置与主配置不一致" >&2
+        return 1
+    fi
+    if ! mv -f "$temp_env" "$SERVER_ENV"; then
+        echo "[错误] 无法写入 $SERVER_ENV" >&2
+        return 1
+    fi
+    trap - RETURN
+
+    if [[ ! -f "$SERVER_ENV" ]] || ! cmp -s "$MASTER_ENV" "$SERVER_ENV"; then
+        echo "[错误] 配置同步后的校验失败: $SERVER_ENV" >&2
+        return 1
+    fi
+    chmod 600 "$SERVER_ENV"
+    echo "  ✓ 已验证同步: $MASTER_ENV -> $SERVER_ENV"
+}
+
+load_master_env() {
+    local line key value
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        line="${line%$'\r'}"
+        [[ -z "${line//[[:space:]]/}" || "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ "$line" == export[[:space:]]* ]] && line="${line#export }"
+        if [[ "$line" != *=* ]]; then
+            echo "[错误] $MASTER_ENV 中存在无效配置行" >&2
+            return 1
+        fi
+        key="${line%%=*}"
+        value="${line#*=}"
+        key="${key//[[:space:]]/}"
+        if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "[错误] $MASTER_ENV 中存在无效变量名: $key" >&2
+            return 1
+        fi
+        if [[ ${#value} -ge 2 && ( ( "$value" == \"*\" ) || ( "$value" == \'*\' ) ) ]]; then
+            value="${value:1:${#value}-2}"
+        fi
+        export "$key=$value"
+    done < "$MASTER_ENV"
+}
 
 echo ""
 echo "  VPBuddy 一键启动"
 echo "  $(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 
-# ── 0. 加载 API Key ──
-# 两路分离 (v0.23.4):
-#   百炼路: DASHSCOPE_API_KEY + BAILIAN_API_KEY → ASR + vision
-#   MiniMax路: MINIMAX_API_KEY + MINIMAX_BASE_URL → LLM chat + 6doc
-# 优先级: 环境变量 > /data/vpbuddy/.env > /data/vpbuddy/server/.env
-if [ -z "$DASHSCOPE_API_KEY" ]; then
-    for envfile in /data/vpbuddy/.env /data/vpbuddy/server/.env; do
-        if [ -f "$envfile" ]; then
-            source <(grep -E '^(DASHSCOPE_API_KEY|BAILIAN_API_KEY|MINIMAX_API_KEY|MINIMAX_BASE_URL|MODEL)=' "$envfile" | sed 's/^/export /')
-        fi
-    done
-fi
+echo "[0/5] 同步并校验持久化配置..."
+sync_env
+load_master_env
+export VPBUDDY_ENV_FILE="$MASTER_ENV"
 
-if [ -z "$DASHSCOPE_API_KEY" ]; then
-    echo "[错误] DASHSCOPE_API_KEY 未设置！"
-    echo "  请在 /data/vpbuddy/.env 中配置 DASHSCOPE_API_KEY=sk-ws-H.你的百炼key"
+if [[ -z "${DASHSCOPE_API_KEY:-}" ]]; then
+    echo "[错误] $MASTER_ENV 未配置 DASHSCOPE_API_KEY" >&2
     exit 1
 fi
-echo "[0/5] 百炼 Key: ${DASHSCOPE_API_KEY:0:15}..."
-
-# 衍生变量
+if [[ -z "${MINIMAX_API_KEY:-}" ]]; then
+    echo "[错误] $MASTER_ENV 未配置 MINIMAX_API_KEY" >&2
+    exit 1
+fi
 export BAILIAN_API_KEY="${BAILIAN_API_KEY:-$DASHSCOPE_API_KEY}"
-# MiniMax 默认值
-export MINIMAX_API_KEY="${MINIMAX_API_KEY:-}"
 export MINIMAX_BASE_URL="${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}"
+echo "  ✓ 百炼与 MiniMax 配置均已加载（密钥不输出）"
 
-# ── 1. 杀 admin-dashboard（它会自动管理 vpbuddy，必须先杀）──
+if $SYNC_ONLY; then
+    echo "  ✓ 配置同步检查完成"
+    exit 0
+fi
+
 echo "[1/5] 停止 admin-dashboard..."
 ADMIN_PIDS=$(pgrep -f "admin.dashboard\|hermes.*dashboard\|admin-dashboard" 2>/dev/null || true)
-if [ -n "$ADMIN_PIDS" ]; then
-    echo "  → 发现 admin-dashboard 进程: $ADMIN_PIDS"
+if [[ -n "$ADMIN_PIDS" ]]; then
     echo "$ADMIN_PIDS" | xargs kill 2>/dev/null || true
     sleep 2
     ADMIN_PIDS=$(pgrep -f "admin.dashboard\|hermes.*dashboard\|admin-dashboard" 2>/dev/null || true)
-    if [ -n "$ADMIN_PIDS" ]; then
-        echo "  → 强制终止: $ADMIN_PIDS"
-        echo "$ADMIN_PIDS" | xargs kill -9 2>/dev/null || true
-    fi
+    [[ -n "$ADMIN_PIDS" ]] && echo "$ADMIN_PIDS" | xargs kill -9 2>/dev/null || true
     echo "  ✓ admin-dashboard 已停止"
 else
     echo "  - 未运行"
 fi
 
-# ── 2. 杀旧 vpbuddy ──
-echo "[2/5] 停止旧 vpbuddy 进程..."
+echo "[2/5] 停止旧 VPBuddy 进程..."
 VP_PIDS=$(pgrep -f "vpbuddy.*ui" 2>/dev/null || true)
-if [ -n "$VP_PIDS" ]; then
-    echo "  → 发现 vpbuddy 进程: $VP_PIDS"
+if [[ -n "$VP_PIDS" ]]; then
     echo "$VP_PIDS" | xargs kill 2>/dev/null || true
     sleep 3
     VP_PIDS=$(pgrep -f "vpbuddy.*ui" 2>/dev/null || true)
-    if [ -n "$VP_PIDS" ]; then
-        echo "  → 强制终止: $VP_PIDS"
-        echo "$VP_PIDS" | xargs kill -9 2>/dev/null || true
-    fi
-    echo "  ✓ 旧 vpbuddy 进程已停止"
+    [[ -n "$VP_PIDS" ]] && echo "$VP_PIDS" | xargs kill -9 2>/dev/null || true
+    echo "  ✓ 旧 VPBuddy 进程已停止"
 else
     echo "  - 未运行"
 fi
 
-# ── 3. 释放端口 ──
 echo "[3/5] 检查端口 $PORT..."
-PORT_PID=$(lsof -ti:$PORT 2>/dev/null || true)
-if [ -n "$PORT_PID" ]; then
-    echo "  → 端口被 PID $PORT_PID 占用，释放中..."
-    kill -9 $PORT_PID 2>/dev/null || true
+PORT_PID=$(lsof -ti:"$PORT" 2>/dev/null || true)
+if [[ -n "$PORT_PID" ]]; then
+    echo "$PORT_PID" | xargs kill -9 2>/dev/null || true
     sleep 1
-    if lsof -ti:$PORT >/dev/null 2>&1; then
-        echo "  ✗ 无法释放端口 $PORT！"
+    if lsof -ti:"$PORT" >/dev/null 2>&1; then
+        echo "[错误] 无法释放端口 $PORT" >&2
         exit 1
     fi
 fi
 echo "  ✓ 端口 $PORT 可用"
 
-# ── 4. 更新 .env 文件（防止 fastapi_app.py 的 os.environ force-overwrite 覆盖 export）──
-# v0.23.4: 两路分离 — 只同步百炼 + MiniMax 相关变量，不再有 OPENAI_*
-echo "[4/5] 同步 .env 文件..."
-for envfile in /data/vpbuddy/.env /data/vpbuddy/server/.env /data/vpbuddy/server/src/vpbuddy/server/.env; do
-    if [ -f "$envfile" ]; then
-        sed -i "s/^DASHSCOPE_API_KEY=.*/DASHSCOPE_API_KEY=$DASHSCOPE_API_KEY/" "$envfile" 2>/dev/null || true
-        sed -i "s/^BAILIAN_API_KEY=.*/BAILIAN_API_KEY=$BAILIAN_API_KEY/" "$envfile" 2>/dev/null || true
-        [ -n "$MINIMAX_API_KEY" ] && sed -i "s/^MINIMAX_API_KEY=.*/MINIMAX_API_KEY=$MINIMAX_API_KEY/" "$envfile" 2>/dev/null || true
-        [ -n "$MINIMAX_BASE_URL" ] && sed -i "s/^MINIMAX_BASE_URL=.*/MINIMAX_BASE_URL=$MINIMAX_BASE_URL/" "$envfile" 2>/dev/null || true
-        [ -n "$MODEL" ] && sed -i "s/^MODEL=.*/MODEL=$MODEL/" "$envfile" 2>/dev/null || true
-        # 删除不再使用的 OPENAI_* 行
-        sed -i "/^OPENAI_API_KEY=/d; /^OPENAI_BASE_URL=/d" "$envfile" 2>/dev/null || true
-    fi
-done
-echo "  ✓ .env 文件已同步"
+echo "[4/5] 检查运行目录..."
+if [[ ! -x "$VENV/bin/vpbuddy" ]]; then
+    echo "[错误] VPBuddy 可执行文件不存在: $VENV/bin/vpbuddy" >&2
+    exit 1
+fi
+mkdir -p "$LOG_DIR"
+echo "  ✓ 运行目录可用"
 
-# ── 5. 启动 + 健康检查 ──
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+LOG_FILE="$LOG_DIR/startup_$TIMESTAMP.log"
 echo "[5/5] 启动 VPBuddy..."
 cd "$VPBUDDY_DIR"
-mkdir -p "$LOG_DIR"
-
 nohup "$VENV/bin/vpbuddy" ui --port "$PORT" > "$LOG_FILE" 2>&1 &
 PID=$!
 echo "  → PID: $PID"
 echo "  → 日志: $LOG_FILE"
 
-# 等待启动
 echo -n "  → 等待服务就绪"
-for i in $(seq 1 30); do
+for _ in $(seq 1 30); do
     sleep 2
-    CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/healthz" 2>/dev/null || echo "000")
-    if [ "$CODE" = "200" ]; then
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
+    if [[ "$CODE" == "200" ]]; then
         echo ""
-        echo ""
-        echo "  ✓ VPBuddy 启动成功！"
-        echo "    PID:    $PID"
-        echo "    端口:   $PORT"
-        echo "    内网:   http://127.0.0.1:$PORT"
-        echo "    公网:   http://47.100.182.3:28765"
-        echo "    日志:   $LOG_FILE"
-        echo ""
+        echo "  ✓ VPBuddy 启动成功（PID $PID，端口 $PORT）"
         exit 0
+    fi
+    if ! kill -0 "$PID" 2>/dev/null; then
+        echo ""
+        echo "[错误] VPBuddy 进程提前退出，请查看: $LOG_FILE" >&2
+        exit 1
     fi
     echo -n "."
 done
 
 echo ""
-echo ""
-echo "  ✗ 启动超时 (60s)"
-echo "    请查看日志: tail -50 $LOG_FILE"
+echo "[错误] 启动超时，请查看: $LOG_FILE" >&2
 exit 1
