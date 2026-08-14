@@ -333,7 +333,7 @@ MIT
 **改动**:
 - 🔧 **toolsets 扩展**: agent 从 `["terminal","file"]` 扩展到 `["terminal","file","vision","web"]` — vision 读取用户上传图片，web DDG 搜索补充上下文
 - ⚡ **KB search 非阻塞**: `POST /api/kb/search` 从 `async def` 内同步等待改为 `await run_in_executor(None, ...)`，不再阻塞 FastAPI event loop
-- 🔐 **.env 自动加载**: 服务启动时多路径 fallback (同目录 → 项目根 → data 上级)，`os.environ[key] = value` (force overwrite，不用 setdefault)，确保 `DASHSCOPE_API_KEY` 永远不会因部署方式丢失
+- 🔐 **.env 自动加载**: 部署时以 `/data/vpbuddy/.env` 为唯一持久化配置源；启动脚本原子复制并逐字节校验 `/data/vpbuddy/server/.env`，且已有进程环境变量优先，避免包内旧 `.env` 覆盖 MiniMax 等新配置
 - 🎯 **gkd 无字数阈值**: 去掉 `len(cur) > 50` 门槛 — hash 变化即触发；新增 `not cur.strip()` 空文本 guard 防止 `md5("")` 误触发
 - 👁️ **vision 配置看护**: Hermes `auxiliary.vision` 显式配置 `api_key`/`base_url`/`model` — `qwen-vl-max` on DashScope，解决 fallback 到 MiniMax key 导致的 401
 - 📝 **idle 文案**: `"未连接"` → `"录音就绪"` — 录音断开 ≠ 服务断开

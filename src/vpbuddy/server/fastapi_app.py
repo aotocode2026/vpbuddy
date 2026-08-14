@@ -27,12 +27,14 @@ from pathlib import Path
 from typing import Any, AsyncGenerator
 from urllib.parse import parse_qs, urlparse
 
-# ── 加载 .env 文件 (优先级低于已有的 env var) ──
-# 尝试多个路径: 同目录 > 项目根 > data目录上级 (兼容 editable install)
+# ── 加载 .env 文件 (已有进程环境变量优先) ──
+# 部署环境以 /data/vpbuddy/.env 为唯一持久化配置源。项目根 .env 只用于
+# 非部署开发环境；包目录内的影子 .env 不再读取，避免旧值覆盖新配置。
+_configured_env = os.environ.get("VPBUDDY_ENV_FILE")
 _env_candidates = [
-    Path(__file__).resolve().parent / ".env",
-    Path(__file__).resolve().parents[2] / ".env",
-    Path(os.environ.get("VPBUDDY_DATA_DIR", "")).parents[1] / ".env" if os.environ.get("VPBUDDY_DATA_DIR") else None,
+    Path(_configured_env) if _configured_env else None,
+    Path("/data/vpbuddy/.env"),
+    Path(__file__).resolve().parents[3] / ".env",
 ]
 _env_file = None
 for _c in _env_candidates:
@@ -45,8 +47,10 @@ if _env_file and _env_file.exists():
         _line = _line.strip()
         if _line and not _line.startswith("#") and "=" in _line:
             _k, _v = _line.split("=", 1)
-            os.environ[_k.strip()] = _v.strip().strip("'").strip('"')
-            _count += 1
+            _k = _k.strip()
+            if _k and _k not in os.environ:
+                os.environ[_k] = _v.strip().strip("'").strip('"')
+                _count += 1
     print(f"[fastapi_app] loaded {_count} vars from {_env_file}", flush=True)
 
 import uvicorn
