@@ -2,20 +2,15 @@
 
 
 
-读 PROJECT_ROOT / "docs"/{meeting_id}/ 下的 6 文件(req/arch/tasks/api/risk.md + demo/demo.html)
+读取共享配置 DOCS_DIR/{meeting_id}/ 下的 6 文件(req/arch/tasks/api/risk.md + demo/demo.html)
 生成单文件 HTML,内嵌 Linear Dark 风格,5s 自动刷新
 """
 
 import argparse
-import os
 import time
 from pathlib import Path
 
-# Auto-computed project root. P1#1 (2026-07-04)
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-
-# 默认路径(可通过环境变量覆盖)
-DOCS_DIR = Path(os.environ.get("VPBUDDY_DOCS_DIR", PROJECT_ROOT / "docs"))
+from .server.config import DOCS_DIR
 
 
 DOC_KIND_META = [

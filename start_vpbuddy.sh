@@ -112,6 +112,27 @@ if [[ "$VPBUDDY_KB_DIR" != /* ]]; then
     echo "[错误] VPBUDDY_KB_DIR 必须是绝对路径: $VPBUDDY_KB_DIR" >&2
     exit 1
 fi
+if [[ -z "${VPBUDDY_DATA_DIR:-}" ]]; then
+    echo "[错误] $MASTER_ENV 未配置 VPBUDDY_DATA_DIR" >&2
+    exit 1
+fi
+if [[ "$VPBUDDY_DATA_DIR" != /* ]]; then
+    echo "[错误] VPBUDDY_DATA_DIR 必须是绝对路径: $VPBUDDY_DATA_DIR" >&2
+    exit 1
+fi
+if [[ -z "${VPBUDDY_DOCS_DIR:-}" ]]; then
+    echo "[错误] $MASTER_ENV 未配置 VPBUDDY_DOCS_DIR" >&2
+    exit 1
+fi
+if [[ "$VPBUDDY_DOCS_DIR" != /* ]]; then
+    echo "[错误] VPBUDDY_DOCS_DIR 必须是绝对路径: $VPBUDDY_DOCS_DIR" >&2
+    exit 1
+fi
+EXPECTED_DOCS_DIR="${VPBUDDY_DATA_DIR%/}/docs"
+if [[ "${VPBUDDY_DOCS_DIR%/}" != "$EXPECTED_DOCS_DIR" ]]; then
+    echo "[错误] VPBUDDY_DOCS_DIR 必须位于持久化数据目录: $EXPECTED_DOCS_DIR" >&2
+    exit 1
+fi
 export BAILIAN_API_KEY="${BAILIAN_API_KEY:-$DASHSCOPE_API_KEY}"
 export MINIMAX_BASE_URL="${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}"
 echo "  ✓ 百炼与 MiniMax 配置均已加载（密钥不输出）"
@@ -119,6 +140,11 @@ echo "  ✓ 百炼与 MiniMax 配置均已加载（密钥不输出）"
 if $SYNC_ONLY; then
     echo "  ✓ 配置同步检查完成"
     exit 0
+fi
+
+if ! mkdir -p "$VPBUDDY_DATA_DIR" "$VPBUDDY_DOCS_DIR" "$VPBUDDY_KB_DIR"; then
+    echo "[错误] 无法创建持久化目录" >&2
+    exit 1
 fi
 
 echo "[1/5] 停止 admin-dashboard..."
@@ -175,7 +201,7 @@ echo "  → PID: $PID"
 echo "  → 日志: $LOG_FILE"
 
 echo -n "  → 等待服务就绪"
-for _ in $(seq 1 30); do
+for _ in $(seq 1 90); do
     sleep 2
     CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/healthz" 2>/dev/null || true)
     if [[ "$CODE" == "200" ]]; then

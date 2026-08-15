@@ -2,7 +2,7 @@
 
 > **本地优先的会议操作系统级 AI 助手** —— 为 VP / 售前 / 项目负责人设计,运行在 VP 自己桌面客户端,数据完全本地化。
 
-**v0.23.3** (2026-07-18) — **ASR 转写分段持久化** (`_persist_segment` → `{mid}.stream.json`) · **RFC 5987 中文文件名下载** (3 个端点 `FileResponse(filename=)`) · **Generation 去重** (输入哈希 + `.finalized` + demo 锁)。详见 [Releases](https://github.com/zhangsheng377/vpbuddy/releases)。
+**main** (2026-08-15) — 用户 6docs 已与源码维护文档分离，服务端持久化到 `/data/vpbuddy/data/docs`；详见 [ADR-0061](docs/decisions/0061-用户6docs持久化路径.md)。当前发布版本仍为 v0.23.3。
 
 [English](#english) | [中文](#中文)
 
@@ -79,18 +79,22 @@ BAILIAN_API_KEY=sk-ws-H.你的百炼key    # 同上，fallback
 MINIMAX_API_KEY=你的minimax_key
 MINIMAX_BASE_URL=https://api.minimax.chat/v1
 MODEL=minimax-m3                       # LLM 模型名
+
+# 持久化数据（server/ 被替换时不会丢失）
+VPBUDDY_DATA_DIR=/data/vpbuddy/data
+VPBUDDY_DOCS_DIR=/data/vpbuddy/data/docs
+VPBUDDY_KB_DIR=/data/vpbuddy/kb
 ```
 
 > **百炼 API Key 获取**：登录 [阿里云百炼控制台](https://bailian.console.aliyun.com/) → 左侧「API Key 管理」→ 创建新的 API Key。注意选 **websocket** 类型（`sk-ws-H.` 开头），实时语音识别必需。
 >
 > **MiniMax API Key 获取**：登录 [MiniMax 开放平台](https://platform.minimax.io/) → API Key 管理。
 
-**启动脚本会自动同步到所有 .env 文件（你不用手动改）：**
+**启动脚本会把唯一主配置原子同步并校验到服务端 `.env`：**
 | 文件 | 用途 | 是否需手动改 |
 |------|------|:---:|
 | `/data/vpbuddy/.env` | **主配置（唯一需改的）** | **是** |
 | `/data/vpbuddy/server/.env` | 服务端运行时读取 | 否（脚本自动同步） |
-| `/root/.hermes/.env` | Hermes Agent 框架 | 否（脚本自动同步） |
 
 #### 第三步：一键启动
 
@@ -102,8 +106,8 @@ bash /data/vpbuddy/server/start_vpbuddy.sh
 1. **杀 admin-dashboard**（如果有，它会干扰 vpbuddy）
 2. **杀旧 vpbuddy 进程**（避免端口冲突）
 3. **释放端口 8765**（如果被占用）
-4. **同步 API Key 到所有 .env 文件**（用第一步填的 key）
-5. **启动服务 + 健康检查**（最多等 60 秒，模型加载需要时间）
+4. **同步并逐字节校验 `/data/vpbuddy/server/.env`**
+5. **启动服务 + 健康检查**（最多等 180 秒，模型冷启动需要时间）
 
 成功后会看到：
 

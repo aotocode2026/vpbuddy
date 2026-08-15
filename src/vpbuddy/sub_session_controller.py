@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .server.config import DATA_DIR, DOCS_DIR
 from .storage import MeetingStorage
 
 logger = logging.getLogger(__name__)
@@ -33,9 +34,6 @@ logger = logging.getLogger(__name__)
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-# 默认路径(可通过环境变量覆盖)
-DATA_DIR = Path(os.environ.get("VPBUDDY_DATA_DIR", PROJECT_ROOT / "data" / "meetings"))
-DOCS_DIR = Path(os.environ.get("VPBUDDY_DOCS_DIR", PROJECT_ROOT / "docs"))
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 PARALLEL_WORKERS = int(os.environ.get("VPBUDDY_PARALLEL_WORKERS", "3"))
 

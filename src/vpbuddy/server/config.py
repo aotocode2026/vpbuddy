@@ -10,10 +10,10 @@ from pathlib import Path
 # 项目根目录 (src/vpbuddy → 向上两级)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
-# 默认路径: 优先使用环境变量, 否则使用项目根目录下的相对路径
-# 不再硬编码特定用户路径 (/home/zsd/...)
-DOCS_DIR = Path(os.environ.get("VPBUDDY_DOCS_DIR", str(_PROJECT_ROOT / "docs")))
+# 默认路径: 优先使用环境变量, 否则使用项目根目录下的相对路径。
+# 运行时 6docs 属于用户数据，必须跟随 DATA_DIR，而不是落入源码维护文档目录。
 DATA_DIR = Path(os.environ.get("VPBUDDY_DATA_DIR", str(_PROJECT_ROOT / "data" / "meetings")))
+DOCS_DIR = Path(os.environ.get("VPBUDDY_DOCS_DIR", str(DATA_DIR / "docs")))
 UI_DIR = Path(os.environ.get("VPBUDDY_UI_DIR", str(_PROJECT_ROOT / "ui")))
 
 DOC_KINDS = ["req", "arch", "tasks", "api", "risk", "demo"]

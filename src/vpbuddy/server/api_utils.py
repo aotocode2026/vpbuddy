@@ -189,6 +189,19 @@ def _doc_path(meeting_id: str, kind: str) -> Path:
     return DOCS_DIR / meeting_id / f"{kind}.md"
 
 
+def _parse_deliverable_id(deliverable_id: str) -> tuple[str, str]:
+    """Parse ``del-{meeting_id}-{kind}`` while preserving hyphens in meeting IDs."""
+    if not deliverable_id.startswith("del-"):
+        raise ValueError("deliverable id must start with 'del-'")
+    try:
+        meeting_id, kind = deliverable_id[4:].rsplit("-", 1)
+    except ValueError as exc:
+        raise ValueError("deliverable id must contain a meeting id and kind") from exc
+    if not meeting_id or kind not in DOC_KINDS:
+        raise ValueError("invalid meeting id or deliverable kind")
+    return meeting_id, kind
+
+
 def _doc_payload(meeting_id: str, kind: str) -> dict[str, object]:
     """返回单文档 DTO.
 
