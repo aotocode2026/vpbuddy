@@ -104,6 +104,14 @@ if [[ -z "${MINIMAX_API_KEY:-}" ]]; then
     echo "[错误] $MASTER_ENV 未配置 MINIMAX_API_KEY" >&2
     exit 1
 fi
+if [[ -z "${VPBUDDY_KB_DIR:-}" ]]; then
+    echo "[错误] $MASTER_ENV 未配置 VPBUDDY_KB_DIR" >&2
+    exit 1
+fi
+if [[ "$VPBUDDY_KB_DIR" != /* ]]; then
+    echo "[错误] VPBUDDY_KB_DIR 必须是绝对路径: $VPBUDDY_KB_DIR" >&2
+    exit 1
+fi
 export BAILIAN_API_KEY="${BAILIAN_API_KEY:-$DASHSCOPE_API_KEY}"
 export MINIMAX_BASE_URL="${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}"
 echo "  ✓ 百炼与 MiniMax 配置均已加载（密钥不输出）"
