@@ -82,6 +82,7 @@ from ..server.api_utils import (
     # 文档路径和负载
     _doc_path,
     _doc_payload,
+    _parse_deliverable_id,
     # Chat 历史
     _chat_path,
     _load_chat_history,
@@ -1805,8 +1806,7 @@ async def fe_get_meeting(meeting_id: str, user: dict = Depends(get_current_user)
 
     # Docs
     try:
-        docs = [{"kind": k, "label": DOC_LABELS.get(k, k), "path": str(DOCS_DIR / meeting_id / f"{k}.md")}
-                for k in DOC_KINDS]
+        docs = [_doc_payload(meeting_id, kind) for kind in DOC_KINDS]
         result["docs"] = docs
     except Exception as e:
         result["docs_error"] = str(e)
@@ -1871,7 +1871,7 @@ async def fe_list_deliverables(meeting_id: str, user: dict = Depends(get_current
             "type": kind,
             "name": DOC_LABELS.get(kind, kind),
             "version": payload.get("version", "1"),
-            "status": "draft",
+            "status": payload.get("status", "pending"),
             "updatedAt": payload.get("updated_at", ""),
         })
     return {"deliverables": docs, "count": len(docs)}
@@ -1881,12 +1881,12 @@ async def fe_list_deliverables(meeting_id: str, user: dict = Depends(get_current
 async def fe_get_deliverable(deliverable_id: str, user: dict = Depends(get_current_user)):
     """GET /deliverables/:id → parse {meetingId}:{kind} → file content"""
     # 格式: del-{meeting_id}-{kind}; meeting_id 可能含 '-', 从右拆
-    parts = deliverable_id.rsplit("-", 2)
-    if len(parts) < 3:
-        raise HTTPException(status_code=400, detail=f"Invalid deliverable_id: {deliverable_id}, expected del-{{meeting_id}}-{{kind}}")
-    meeting_id, kind = parts[1], parts[2]
+    try:
+        meeting_id, kind = _parse_deliverable_id(deliverable_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid deliverable_id: {deliverable_id}, expected del-{{meeting_id}}-{{kind}}") from exc
     _require_meeting_owner(meeting_id, user)
-    doc_path = DOCS_DIR / meeting_id / f"{kind}.md"
+    doc_path = _doc_path(meeting_id, kind)
     if not doc_path.exists():
         raise HTTPException(status_code=404, detail=f"Deliverable {kind} not found for meeting {meeting_id}")
     content = doc_path.read_text(encoding="utf-8")
@@ -1923,7 +1923,7 @@ async def fe_archive_meeting(meeting_id: str, user: dict = Depends(get_current_u
     # 附加归档信息
     docs_list = []
     for kind in DOC_KINDS:
-        doc_path = DOCS_DIR / meeting_id / f"{kind}.md"
+        doc_path = _doc_path(meeting_id, kind)
         if doc_path.exists():
             docs_list.append({"kind": kind, "label": DOC_LABELS.get(kind, kind), "size": doc_path.stat().st_size})
     return {

@@ -22,6 +22,7 @@ def test_sync_env_creates_exact_verified_copy(tmp_path: Path) -> None:
         "MINIMAX_API_KEY='mini key with spaces'\n"
         "MINIMAX_BASE_URL=https://example.invalid/v1\n"
         "VPBUDDY_DATA_DIR=/data/vpbuddy/data\n"
+        "VPBUDDY_DOCS_DIR=/data/vpbuddy/data/docs\n"
         "VPBUDDY_KB_DIR=/data/vpbuddy/kb\n"
     )
     master.write_text(content, encoding="utf-8")
@@ -82,6 +83,8 @@ def test_sync_env_rejects_missing_or_relative_kb_dir(
     master.write_text(
         "DASHSCOPE_API_KEY=dash-test\n"
         "MINIMAX_API_KEY=mini-test\n"
+        "VPBUDDY_DATA_DIR=/data/vpbuddy/data\n"
+        "VPBUDDY_DOCS_DIR=/data/vpbuddy/data/docs\n"
         f"VPBUDDY_KB_DIR={kb_dir}\n",
         encoding="utf-8",
     )
@@ -99,3 +102,40 @@ def test_sync_env_rejects_missing_or_relative_kb_dir(
     )
     assert result.returncode != 0
     assert "VPBUDDY_KB_DIR" in result.stderr
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required")
+@pytest.mark.parametrize(
+    "data_dir,docs_dir",
+    [
+        ("", "/data/vpbuddy/data/docs"),
+        ("data", "/data/vpbuddy/data/docs"),
+        ("/data/vpbuddy/data", "docs"),
+        ("/data/vpbuddy/data", "/data/vpbuddy/server/docs"),
+    ],
+)
+def test_sync_env_rejects_invalid_or_nonpersistent_docs_dir(
+    tmp_path: Path, data_dir: str, docs_dir: str
+) -> None:
+    server = tmp_path / "server"
+    server.mkdir()
+    master = tmp_path / ".env"
+    master.write_text(
+        "DASHSCOPE_API_KEY=dash-test\n"
+        "MINIMAX_API_KEY=mini-test\n"
+        f"VPBUDDY_DATA_DIR={data_dir}\n"
+        f"VPBUDDY_DOCS_DIR={docs_dir}\n"
+        "VPBUDDY_KB_DIR=/data/vpbuddy/kb\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env.update(VPBUDDY_MASTER_ENV=str(master), VPBUDDY_DIR=str(server))
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--sync-env-only"],
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "VPBUDDY_DATA_DIR" in result.stderr or "VPBUDDY_DOCS_DIR" in result.stderr

@@ -1,6 +1,7 @@
 |> **说明**:本文档是 VPBuddy 产品说明书的当前版本。
 |> 
 |> **版本历史**:
+|> - **v2.10** (2026-08-15): 用户 6docs 使用 `/data/vpbuddy/data/docs` 持久化，与仓库维护文档分离；会议聚合和交付物接口恢复正文及 Demo 识别。详见 [ADR-0061](../decisions/0061-用户6docs持久化路径.md)
 |> - **v2.9** (2026-07-21): **v0.23.3 — 两路 API Key 彻底分离 + Model 显式 Fallback**: 百炼管 ASR+Vision (DASHSCOPE_API_KEY)，MiniMax 管 LLM (MINIMAX_API_KEY)；删除所有 OPENAI_API_KEY；model=None → 显式 minimax-m3；start_vpbuddy.sh 新增 MODEL 同步 详见 [ADR-0060](../decisions/0060-两路API-key分离-model显式fallback.md)
 |> - **v2.8** (2026-07-18): **v0.23.2 — ASR 转写分段持久化 + RFC 5987 中文文件名下载 + Generation 去重**: `_persist_segment()` 幂等写入 `{mid}.stream.json` 转写分段不丢失；3 个下载端点 RFC 5987 自动编码中文文件名不再断连；输入哈希去重 + `.finalized` 持久化 + demo 发布锁 详见 [ADR-0059](../decisions/0059-asr-segment-persistence-rfc5987-download.md) · [ADR-0058](../decisions/0058-generation-dedup-idempotency.md)
 |> - **v2.7** (2026-07-14): **v0.22.8 — 录音稳定性三修 + 数据安全加固**: 百炼 ASR 自动重连、`stream_start` 断线重连保留转录、图片/对话上传非阻塞；Agent 铁律增强、会议删除彻底清理、经验蒸馏自排除；WS/SSE 解耦 + 停止录音按钮即时响应
@@ -28,9 +29,9 @@
 
 ---
 
-# VPBuddy 产品说明书 v2.9
+# VPBuddy 产品说明书 v2.10
 
-> **v2.9** (2026-07-21 修订 — **v0.23.3**): 两路 API Key 彻底分离（百炼 ASR+Vision / MiniMax LLM）。详见 [总体架构 v1.53](../design/总体架构.md) + ADR-0060。
+> **v2.10** (2026-08-15 修订): 用户 6docs 持久化到 `VPBUDDY_DATA_DIR/docs`，源码 `docs/` 仅存开发维护文档。详见 [总体架构 v1.54](../design/总体架构.md) + ADR-0061。
 
 > **历史版本**:v1.0-v1.13 已归档删除。
 
@@ -182,6 +183,10 @@ master session: meeting:{mid}:vp-chat     ← 客户端 Chat 页签
 | `meeting:{mid}:vp-chat` | master — VP Chat 主控 | 对话历史, 上下文来源 |
 | `meeting:{mid}:batch` | batch_docs — 5 文档一次 LLM 调用 | `req.md` / `arch.md` / `tasks.md` / `api.md` / `risk.md` |
 | `meeting:{mid}:demo` | demo — HTML 原型 | `demo/` 目录 (多版本) |
+
+运行时交付物根目录为 `${VPBUDDY_DATA_DIR}/docs/{meeting_id}/`。其中五个 Markdown
+文档直接位于会议目录，Demo 当前版本位于 `demo/demo.html`；仓库根目录 `docs/`
+仅用于产品、架构和 ADR 等开发维护资料。
 
 **关键设计决策**:
 1. **fork = parent_session_id**: 子 agent 从 master session 读取整个对话历史作为初始化上下文 (Hermes 0.18.0+ 原生支持)

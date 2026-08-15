@@ -37,7 +37,7 @@ _E2E_SSH_TARGET = os.environ.get("VP_E2E_SSH_TARGET", "root@47.100.182.3")
 _E2E_SSH_PORT = os.environ.get("VP_E2E_SSH_PORT", "16159")
 _E2E_SSH_KEY = os.environ.get("VP_E2E_SSH_KEY", "~/.ssh/hermes_47.100.182.3_ed25519")
 _E2E_GPU_PYTHON = os.environ.get("VP_E2E_GPU_PYTHON", "/data/vpbuddy/venv/bin/python3")
-_E2E_GPU_DOCS_DIR = os.environ.get("VP_E2E_GPU_DOCS_DIR", "/data/vpbuddy/server/docs")
+_E2E_GPU_DOCS_DIR = os.environ.get("VP_E2E_GPU_DOCS_DIR", "/data/vpbuddy/data/docs")
 
 
 def _ssh_run(cmd: str, timeout: int = 10) -> str:
