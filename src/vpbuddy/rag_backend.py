@@ -20,6 +20,24 @@ Metadata = dict[str, Any]
 SearchResult = list[dict[str, Any]]
 
 
+def _resolve_persist_dir(path: str | Path | None = None) -> Path:
+    """Resolve an explicit absolute Chroma directory without unsafe fallbacks."""
+    if path is None:
+        configured = os.environ.get("VPBUDDY_KB_DIR", "").strip()
+        if not configured:
+            raise RuntimeError(
+                "VPBUDDY_KB_DIR is required; refusing to create a Chroma "
+                "database inside the source checkout"
+            )
+        persist_dir = Path(configured)
+    else:
+        persist_dir = Path(path)
+
+    if not persist_dir.is_absolute():
+        raise ValueError(f"Chroma persistence path must be absolute: {persist_dir}")
+    return persist_dir
+
+
 def _detect_device() -> str:
     """检测最佳 embedding 设备: 优先 GPU, fallback CPU.
 
@@ -80,7 +98,7 @@ class ChromaRAG(RAGBackend):
     """Chroma 嵌入式实现 (ADR-0019).
 
     配置:
-        path: Chroma 持久化目录 (默认 data/chroma)
+        path: Chroma 持久化目录 (测试或工具可显式传入；运行时必须配置绝对路径 VPBUDDY_KB_DIR)
         collection_name: 集合名 (默认 vpbuddy_kb)
         model_name: embedding 模型 (默认 paraphrase-multilingual-MiniLM-L12-v2, 384 维)
     """
@@ -94,7 +112,7 @@ class ChromaRAG(RAGBackend):
         import chromadb
         from chromadb.utils import embedding_functions
 
-        persist_dir = Path(path) if path else Path(os.environ.get("VPBUDDY_KB_DIR", DATA_DIR / "chroma"))
+        persist_dir = _resolve_persist_dir(path)
         persist_dir.mkdir(parents=True, exist_ok=True)
         logger.info("ChromaRAG init: path=%s model=%s", persist_dir, model_name)
 
