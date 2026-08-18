@@ -1,6 +1,7 @@
 |> **说明**:本文档是 VPBuddy 产品说明书的当前版本。
 |> 
 |> **版本历史**:
+|> - **v2.11** (2026-08-18): 会议 Demo 的版本目录、HTML 内容与实时 ASR WebSocket 均校验会议 owner；不再允许通过公开 `/docs/*` 绕过数据隔离。详见 [ADR-0062](../decisions/0062-会议Demo访问按owner隔离.md)
 |> - **v2.10** (2026-08-15): 用户 6docs 使用 `/data/vpbuddy/data/docs` 持久化，与仓库维护文档分离；会议聚合和交付物接口恢复正文及 Demo 识别。详见 [ADR-0061](../decisions/0061-用户6docs持久化路径.md)
 |> - **v2.9** (2026-07-21): **v0.23.3 — 两路 API Key 彻底分离 + Model 显式 Fallback**: 百炼管 ASR+Vision (DASHSCOPE_API_KEY)，MiniMax 管 LLM (MINIMAX_API_KEY)；删除所有 OPENAI_API_KEY；model=None → 显式 minimax-m3；start_vpbuddy.sh 新增 MODEL 同步 详见 [ADR-0060](../decisions/0060-两路API-key分离-model显式fallback.md)
 |> - **v2.8** (2026-07-18): **v0.23.2 — ASR 转写分段持久化 + RFC 5987 中文文件名下载 + Generation 去重**: `_persist_segment()` 幂等写入 `{mid}.stream.json` 转写分段不丢失；3 个下载端点 RFC 5987 自动编码中文文件名不再断连；输入哈希去重 + `.finalized` 持久化 + demo 发布锁 详见 [ADR-0059](../decisions/0059-asr-segment-persistence-rfc5987-download.md) · [ADR-0058](../decisions/0058-generation-dedup-idempotency.md)
@@ -29,9 +30,9 @@
 
 ---
 
-# VPBuddy 产品说明书 v2.10
+# VPBuddy 产品说明书 v2.11
 
-> **v2.10** (2026-08-15 修订): 用户 6docs 持久化到 `VPBUDDY_DATA_DIR/docs`，源码 `docs/` 仅存开发维护文档。详见 [总体架构 v1.54](../design/总体架构.md) + ADR-0061。
+> **v2.11** (2026-08-18 修订): 会议 Demo 仅允许 owner 通过鉴权 API 读取；公开 `/docs/*` 已移除。详见 [总体架构 v1.55](../design/总体架构.md) + ADR-0062。
 
 > **历史版本**:v1.0-v1.13 已归档删除。
 
@@ -188,6 +189,10 @@ master session: meeting:{mid}:vp-chat     ← 客户端 Chat 页签
 文档直接位于会议目录，Demo 当前版本位于 `demo/demo.html`；仓库根目录 `docs/`
 仅用于产品、架构和 ADR 等开发维护资料。
 
+会议交付物目录是服务端内部存储，不是公开静态目录。Demo 版本列表和 HTML 正文
+必须通过 `/api/meetings/{id}/demo/versions` 与
+`/api/meetings/{id}/demo/versions/{version}/content` 读取，并校验当前用户是会议 owner。
+
 **关键设计决策**:
 1. **fork = parent_session_id**: 子 agent 从 master session 读取整个对话历史作为初始化上下文 (Hermes 0.18.0+ 原生支持)
 2. **单向继承**: 子 agent 不修改 parent 历史, parent 感知不到 child
@@ -334,3 +339,4 @@ VP 任何时候投屏/外发(无『完成』前提)
 - **v2.0 (2026-07-01)**: 8 项产品需求合入 v0.6 (ADR-0019~0025)
 - v1.13 (2026-06-21): 删除飞书 SDK / 妙记 API, 自接 Whisper + pyannote (ADR-0008)
 - v1.0-v1.12: 已归档删除
+

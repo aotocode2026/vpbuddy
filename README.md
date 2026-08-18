@@ -2,7 +2,7 @@
 
 > **本地优先的会议操作系统级 AI 助手** —— 为 VP / 售前 / 项目负责人设计,运行在 VP 自己桌面客户端,数据完全本地化。
 
-**main** (2026-08-15) — 用户 6docs 已与源码维护文档分离，服务端持久化到 `/data/vpbuddy/data/docs`；详见 [ADR-0061](docs/decisions/0061-用户6docs持久化路径.md)。当前发布版本仍为 v0.23.3。
+**main** (2026-08-18) — 会议 Demo 版本列表和 HTML 内容均要求 Bearer 鉴权与 owner 校验，公开 `/docs/*` 文件入口已移除；详见 [ADR-0062](docs/decisions/0062-会议Demo访问按owner隔离.md)。当前版本为 v0.23.4。
 
 [English](#english) | [中文](#中文)
 
@@ -452,3 +452,4 @@ MIT
 - 🔢 版本号全栈升 0.6.0: pyproject / Tauri Cargo.toml / tauri.conf.json / package.json / `__init__.py`
 
 详见 [docs/decisions/README.md](docs/decisions/README.md) + [总体架构 v1.21](docs/design/总体架构.md)。
+

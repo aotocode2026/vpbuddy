@@ -77,6 +77,7 @@
 | [0031](./0031-Phase7-客户端双轨采集-stub落地.md) | **Phase 7 客户端双轨采集 stub 落地 (microphone/loopback/both)** | Accepted (Stub) → Superseded by 0032 | 2026-07-02 |
 | [0032](./0032-Phase7-跨平台loopback真实现.md) | **Phase 7 跨平台 loopback 真实现 (Linux PulseAudio mon / macOS BlackHole / Windows v0.9.x)** | Accepted | 2026-07-02 |
 | [0033](./0033-e2e_realtime-fixture-wait-server.md) | **e2e_realtime fixture 轮询 wait — 修 daemon-required test 自 v0.7.x 起 broken** | Accepted | 2026-07-02 |
+| [0062](./0062-会议Demo访问按owner隔离.md) | **会议 Demo 版本和 HTML 内容按 owner 隔离** | Accepted | 2026-08-18 |
 
 ## 更新原则 (2026-06-23 张胜东立的铁律)
 
@@ -84,3 +85,4 @@
 - **ADR 驱动**: 每次架构变更 = 1 ADR + 同步 design / spec / 部署 / README / pyproject + 1 commit
 - **读 ADR 按编号**: `ls docs/decisions/` 从小到大读, 看顶部"Superseded by"
 - **假设错立即承认 + 修文档**: 不"为 ADR 辩护", "代码 = 真相"
+

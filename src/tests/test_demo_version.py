@@ -18,7 +18,7 @@ def docs_dir(tmp_path, monkeypatch):
     """临时 docs dir."""
     d = tmp_path / "docs"
     d.mkdir()
-    monkeypatch.setattr("vpbuddy.ui_server.DOCS_DIR", d)
+    monkeypatch.setattr("vpbuddy.demo_version.DOCS_DIR", d)
     return d
 
 
@@ -54,6 +54,15 @@ def test_write_v2_does_not_overwrite_v1(docs_dir):
     assert v1_after == v1_content  # v1 没变
     assert (docs_dir / "m1" / "demo_v2.html").exists()
     assert "v2" in (docs_dir / "m1" / "demo_v2.html").read_text()
+
+
+def test_get_demo_version_path_only_returns_manifest_versions(docs_dir):
+    demo_version.write_demo_version("m1", _make_html("v1"), docs_dir=docs_dir)
+
+    path = demo_version.get_demo_version_path("m1", 1, docs_dir=docs_dir)
+    assert path == docs_dir.resolve() / "m1" / "demo_v1.html"
+    assert demo_version.get_demo_version_path("m1", 2, docs_dir=docs_dir) is None
+    assert demo_version.get_demo_version_path("m1", 0, docs_dir=docs_dir) is None
 
 
 def test_write_v3_updates_latest_symlink(docs_dir):
@@ -398,3 +407,4 @@ def test_changed_content_creates_new_version(docs_dir):
     assert r2["ok"] is True
     assert r2["version"] == 2
     assert "skipped" not in r2
+
