@@ -57,7 +57,6 @@ import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 # ── 从 api_utils 导入业务函数和常量 (service layer extracted from ui_server) ──
@@ -754,8 +753,35 @@ def get_demo_versions(meeting_id: str, user: dict = Depends(get_current_user)):
     """GET /api/meetings/{id}/demo/versions — demo 版本列表 (ADR-0024)"""
     from ..demo_version import list_versions
 
+    _require_meeting_owner(meeting_id, user)
     versions = list_versions(meeting_id)
     return {"meeting_id": meeting_id, "versions": versions, "count": len(versions)}
+
+
+@app.get("/api/meetings/{meeting_id}/demo/versions/{version}/content")
+def get_demo_version_content(
+    meeting_id: str,
+    version: int,
+    user: dict = Depends(get_current_user),
+):
+    """读取指定 Demo 版本的 HTML；必须是会议 owner。"""
+    from ..demo_version import get_demo_version_path
+
+    _require_meeting_owner(meeting_id, user)
+    path = get_demo_version_path(meeting_id, version)
+    if path is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": f"demo version {version} not found", "status": 404},
+        )
+    return FileResponse(
+        str(path),
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 # =============================================================================
@@ -1621,6 +1647,17 @@ async def ws_realtime_asr(websocket: WebSocket, meeting_id: str):
         await websocket.close()
         return
 
+    try:
+        _require_meeting_owner(meeting_id, user)
+    except HTTPException as exc:
+        await websocket.send_json({
+            "type": "error",
+            "error": "meeting not found" if exc.status_code == 404 else "access denied",
+            "status": exc.status_code,
+        })
+        await websocket.close(code=4404 if exc.status_code == 404 else 4403)
+        return
+
     _log.info("[ws_realtime_asr] client connected, meeting=%s user=%s", meeting_id, user.get("user_id"))
 
     from .bailian_asr import start_session, send_audio, stop_session
@@ -1947,12 +1984,6 @@ async def serve_ui_root():
     if not index_path.exists():
         raise HTTPException(status_code=404, detail="UI not found")
     return FileResponse(str(index_path))
-
-
-# 文档目录: /docs/* → StaticFiles
-_docs_static_path = DOCS_DIR
-if _docs_static_path.exists() and _docs_static_path.is_dir():
-    app.mount("/docs", StaticFiles(directory=str(_docs_static_path)), name="docs")
 
 
 # =============================================================================

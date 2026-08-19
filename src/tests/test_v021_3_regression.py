@@ -181,6 +181,11 @@ class TestWSAuthRequired:
         import uuid
         token = _create_token(uuid.uuid4().hex[:16], "ws@t.com")
         mid = f"ws_auth_{uuid.uuid4().hex[:6]}"
+        create_resp = client.post(
+            f"/api/meetings/stream_start?meeting_id={mid}&audio_source=microphone",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert create_resp.status_code == 200
         sess = MagicMock()
         sess.running = True
         sess.meeting_id = mid
@@ -193,6 +198,26 @@ class TestWSAuthRequired:
                 ws.send_json({"type": "ping"})
                 pong = ws.receive_json()
                 assert pong["type"] == "pong"
+
+    def test_ws_cross_user_rejected(self, client):
+        from vpbuddy.server.auth import _create_token
+        import uuid
+
+        token_a = _create_token("ws-owner-a", "ws-owner-a@t.com")
+        token_b = _create_token("ws-owner-b", "ws-owner-b@t.com")
+        mid = f"ws_owner_{uuid.uuid4().hex[:6]}"
+        create_resp = client.post(
+            f"/api/meetings/stream_start?meeting_id={mid}&audio_source=microphone",
+            headers={"Authorization": f"Bearer {token_a}"},
+        )
+        assert create_resp.status_code == 200
+
+        with client.websocket_connect(
+            f"/api/meetings/{mid}/realtime_asr?token={token_b}"
+        ) as ws:
+            message = ws.receive_json()
+            assert message["type"] == "error"
+            assert message["status"] == 403
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -341,3 +366,4 @@ class TestDocSchedulingHash:
 
     def test_short_text_below_threshold(self):
         assert len("太短") < 10
+

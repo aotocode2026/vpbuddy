@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 UTC = timezone.utc
 from pathlib import Path
 
-from .ui_server import DOCS_DIR
+from .server.config import DOCS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -354,6 +354,21 @@ def list_versions(meeting_id: str, docs_dir: Path | None = None) -> list[dict]:
     return sorted(manifest, key=lambda m: m.get("version", 0), reverse=True)
 
 
+def get_demo_version_path(
+    meeting_id: str,
+    version: int,
+    docs_dir: Path | None = None,
+) -> Path | None:
+    """返回 manifest 中已登记的 Demo 版本文件，避免信任客户端文件名。"""
+    if version < 1:
+        return None
+    manifest = load_manifest(meeting_id, docs_dir)
+    if not any(entry.get("version") == version for entry in manifest):
+        return None
+    path = _version_path(meeting_id, version, docs_dir)
+    return path if path.is_file() else None
+
+
 def get_version_file(meeting_id: str, kind: str, docs_dir: Path | None = None) -> str:
     """读取文档版本号文件, 不存在则返回 '1'.
 
@@ -433,3 +448,4 @@ def set_deliverable_status(meeting_id: str, kind: str, status: str, docs_dir: Pa
     entry["updated_at"] = datetime.now(UTC).isoformat()
     meta[kind] = entry
     save_deliverable_meta(meeting_id, meta, docs_dir)
+

@@ -6,7 +6,7 @@
 > **编码**: 所有请求/响应使用 UTF-8
 > **CORS**: 所有端点返回 `Access-Control-Allow-Origin: *`
 > **认证 (ADR-0047)**: 除 `/healthz` 和 `/api/auth/*` 外所有端点要求 `Authorization: Bearer <token>`。WebSocket 端点通过 `?token=<JWT>` query param 认证。
-> **会议隔离 (ADR-0050)**: 所有单会议端点 (state/docs/events/aggregate/collab/chat/close/materials) 仅 owner 可访问, 非 owner 返回 `403`
+> **会议隔离 (ADR-0050/0062)**: 所有单会议端点（包括 Demo 版本目录、HTML 内容和实时 ASR WebSocket）仅 owner 可访问，非 owner 返回 `403`；公开 `/docs/*` 已移除。
 > **两路 API Key 分离 (ADR-0060)**: 百炼 `DASHSCOPE_API_KEY` 管 ASR+Vision，MiniMax `MINIMAX_API_KEY` 管 LLM Chat+6doc。不再使用 `OPENAI_API_KEY`/`OPENAI_BASE_URL`。服务端**必须**通过 `bash start_vpbuddy.sh` 启动以注入 key。
 > **⚠️ Breaking in v0.20**: `upload_audio`、`stream_chunk`、`stream_stop` 已移除，30s 切片模式已废弃，请使用 WebSocket 实时 ASR。
 >
@@ -87,6 +87,7 @@
    - [GET /api/meetings/{id}/docs/{kind}](#52-获取单个文档)
    - [GET /api/meetings/{id}/docs/{kind}/download](#53-下载文档文件)
    - [GET /api/meetings/{id}/demo/versions](#54-获取demo版本列表)
+   - [GET /api/meetings/{id}/demo/versions/{version}/content](#55-读取demo版本html)
 6. [Chat 对话](#6-chat-对话)
    - [POST /api/meetings/{id}/chat](#61-发送chat消息)
    - [GET /api/meetings/{id}/chat/history](#62-获取chat历史)
@@ -442,17 +443,7 @@ WS /api/meetings/{id}/realtime_asr
 | type | 说明 |
 |------|------|
 | `asr_status` | `{"status": "connected"/"closed"}` — 百炼连接状态 |
-| `transcript` | `{"text": "...", "begin_time": ms, "end_time": ms, "is_sentence_end": bool, "is_noise": bool, "speaker_id": "UNKNOWN"}` — v0.21.3 新增 `is_noise` (噪声标记) 和 `speaker_id` (当前固定 "UNKNOWN"，百炼不做说话人分离) |
-| `asr_complete` | `{"sentence_count": N, "full_text": "..."}` — 识别完成 |
-| `asr_error` | `{"error": "..."}` — 百炼错误 |
-
-**特点**:
-- 百炼 fun-asr-realtime 全程同一条 WebSocket 双工流，模型内部利用上文语音特征提升下文识别
-- 每句完成时自动写入 `MeetingState.cleaned_text`，**v0.21.3 变更**: 写入的是经过降噪过滤的 `cleaned_accumulated_text`（过滤填充词/设备测试短语/无意义重复），非原始累积文本
-- **v0.23.1 变更**: 文档生成从 hash 轮询改为**事件驱动** — 每句 `sentence_end` 回调 `on_state_changed` → `task_manager.submit`，无硬性时间约束
-- **v0.21.3 变更**: 文档调度改为 hash-based 检测有意义变更，debounce 6s（不再使用 15s 无条件首轮 + 30s 字符增量策略）— **v0.23.1 已重构为事件驱动**
-- **v0.21.3 变更**: 断线不误关会议，会议数据保留可用于后续重连
-- **v0.22.8 百炼重连**: 百炼 WS 长时间无有效语音会关闭 (idle timeout ~10-20s)，服务端检测到 `on_close` → 标记 `needs_reconnect` → 下次 `send_audio` 自动 `restart_session()` 重建 Recognition。客户端 WS **不断开**，SSE **不推** `recording-disconnected`。用户重新开始说话时 ASR 自动恢复。
+| `transcript` | `{"text": "...", "begin_time": ms, "end_time": ms, "is_sentence_end": bool, "is_noise": bool, "speaker_id": "UNKNOWN"}` — v0.21.3 新增 `is_noise` (噪声标记) 和 `speak…340 tokens truncated…
 
 **典型流程**:
 ```
@@ -596,6 +587,18 @@ GET /api/meetings/{id}/docs/{kind}/download
 ```
 GET /api/meetings/{id}/demo/versions
 ```
+
+需 Bearer 认证并校验会议 owner。非 owner 返回 `403`。
+
+### 5.5 读取 Demo 版本 HTML
+
+```
+GET /api/meetings/{id}/demo/versions/{version}/content
+```
+
+返回指定版本的 `text/html` 内容。需 Bearer 认证并校验会议 owner；响应包含
+`Cache-Control: private, no-store`。客户端应先鉴权 fetch，再通过 Blob URL 或
+iframe `srcdoc` 展示，不能直接拼接服务端磁盘或 `/docs/*` URL。
 
 ---
 
@@ -991,17 +994,18 @@ GET /api/timeline
 
 | 路径 | 说明 |
 |------|------|
-| `/data/vpbuddy/server/data/meetings/` | 会议 JSON 状态文件 (MeetingState) |
-| `/data/vpbuddy/server/docs/{mid}/` | 6 文档 + demo HTML |
+| `/data/vpbuddy/data/` | 会议 JSON 状态文件 (MeetingState) |
+| `/data/vpbuddy/data/docs/{mid}/` | 6 文档 + demo HTML（仅由鉴权 API 读取） |
 | `/data/vpbuddy/server/src/` | 服务端 Python 源码 |
 | `/data/vpbuddy/server/data/experiences/` | 经验蒸馏 JSON |
 | `/data/vpbuddy/server/data/uploads/{mid}/` | 会议上传文件 (文本+图片原始文件) |
 | `/data/vpbuddy/server/data/meetings/stream/{mid}.stream.json` | 转写分段持久化记录 (v0.23.3, ADR-0059) |
 
-### 近期变更 (v0.23.3)
+### 近期变更 (v0.23.4)
 
 | 版本 | 日期 | 变更 |
 |------|------|------|
+| **v0.23.4** | **2026-08-18** | **会议数据 owner 隔离 (ADR-0062)**：Demo 版本列表和实时 ASR WebSocket 补 owner 校验，新增鉴权 HTML 内容接口，移除公开 `/docs/*` 静态入口 |
 | **v0.23.3** | **2026-07-21** | **两路 API Key 分离 (ADR-0060)**: 百炼 DASHSCOPE_API_KEY (ASR+Vision) + MiniMax MINIMAX_API_KEY (LLM Chat+6doc) + 删除 OPENAI_* + model 显式 fallback + start_vpbuddy.sh MODEL 同步 |
 | **v0.23.3** | **2026-07-18** | **ASR 分段持久化 (#45)**: `_persist_segment()` 幂等写入 `{mid}.stream.json` → `transcript_segments[]` + **RFC 5987 中文文件名下载 (#47)**: 3 个下载端点改用 `FileResponse(filename=)` 自动编码 + **E2E 测试加固**: task_manager 3 + fastapi_server 27 修复 |
 | v0.23.2 | 2026-07-18 | **Generation 去重 + Finalize 幂等 (ADR-0058)**: compute_input_hash + should_skip_generation + mark_finalized (.finalized) + idempotency key + demo 发布锁 (per-meeting Lock) + generation 记录跟踪 |
@@ -1012,3 +1016,4 @@ GET /api/timeline
 | v0.22.5 | 2026-07-12 | demo版本占位拒绝 (write_demo_version 拦截"等待更多会议内容") + gkd阈值 10→50字 + demo-new-version SSE链路完整 (Rust显式分支 + 前端自动刷新版本列表) |
 | v0.22.4 | 2026-07-12 | SSE生命周期与采集解耦 (sse_active独立flag, 停采集后保持30s) + WS发送失败不再设capturing=false (防止服务端断百炼WS时误杀SSE) + 服务端必须bash run.sh启动 (注入BAILIAN_API_KEY/DASHSCOPE_API_KEY) |
 | v0.21.12 | 2026-07-11 | (基线) |
+
