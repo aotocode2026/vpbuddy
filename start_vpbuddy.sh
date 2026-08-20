@@ -95,6 +95,7 @@ echo "[0/5] 同步并校验持久化配置..."
 sync_env
 load_master_env
 export VPBUDDY_ENV_FILE="$MASTER_ENV"
+TEMPLATES_DIR="${VPBUDDY_TEMPLATES_DIR:-${VPBUDDY_DATA_DIR%/}/templates}"
 
 if [[ -z "${DASHSCOPE_API_KEY:-}" ]]; then
     echo "[错误] $MASTER_ENV 未配置 DASHSCOPE_API_KEY" >&2
@@ -133,8 +134,13 @@ if [[ "${VPBUDDY_DOCS_DIR%/}" != "$EXPECTED_DOCS_DIR" ]]; then
     echo "[错误] VPBUDDY_DOCS_DIR 必须位于持久化数据目录: $EXPECTED_DOCS_DIR" >&2
     exit 1
 fi
+if [[ -n "${VPBUDDY_TEMPLATES_DIR:-}" && "$TEMPLATES_DIR" != /* ]]; then
+    echo "[错误] VPBUDDY_TEMPLATES_DIR 必须是绝对路径: $TEMPLATES_DIR" >&2
+    exit 1
+fi
 export BAILIAN_API_KEY="${BAILIAN_API_KEY:-$DASHSCOPE_API_KEY}"
 export MINIMAX_BASE_URL="${MINIMAX_BASE_URL:-https://api.minimax.chat/v1}"
+export VPBUDDY_TEMPLATES_DIR="$TEMPLATES_DIR"
 echo "  ✓ 百炼与 MiniMax 配置均已加载（密钥不输出）"
 
 if $SYNC_ONLY; then
@@ -142,7 +148,7 @@ if $SYNC_ONLY; then
     exit 0
 fi
 
-if ! mkdir -p "$VPBUDDY_DATA_DIR" "$VPBUDDY_DOCS_DIR" "$VPBUDDY_KB_DIR"; then
+if ! mkdir -p "$VPBUDDY_DATA_DIR" "$VPBUDDY_DOCS_DIR" "$VPBUDDY_KB_DIR" "$TEMPLATES_DIR"; then
     echo "[错误] 无法创建持久化目录" >&2
     exit 1
 fi

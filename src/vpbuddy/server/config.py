@@ -14,6 +14,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 # 运行时 6docs 属于用户数据，必须跟随 DATA_DIR，而不是落入源码维护文档目录。
 DATA_DIR = Path(os.environ.get("VPBUDDY_DATA_DIR", str(_PROJECT_ROOT / "data" / "meetings")))
 DOCS_DIR = Path(os.environ.get("VPBUDDY_DOCS_DIR", str(DATA_DIR / "docs")))
+TEMPLATES_DIR = Path(os.environ.get("VPBUDDY_TEMPLATES_DIR", str(DATA_DIR / "templates")))
 UI_DIR = Path(os.environ.get("VPBUDDY_UI_DIR", str(_PROJECT_ROOT / "ui")))
 
 DOC_KINDS = ["req", "arch", "tasks", "api", "risk", "demo"]

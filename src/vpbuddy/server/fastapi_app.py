@@ -56,7 +56,7 @@ if _env_file and _env_file.exists():
 import uvicorn
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 # ── 从 api_utils 导入业务函数和常量 (service layer extracted from ui_server) ──
@@ -108,6 +108,14 @@ from .config import (
 
 # ── 材料存储 ──
 from ..server import material_storage
+from ..industry_templates import (
+    apply_template,
+    get_application,
+    get_template,
+    get_template_cover,
+    get_template_html,
+    list_templates,
+)
 
 # ── FastAPI 应用 ──
 app = FastAPI(
@@ -344,6 +352,142 @@ def get_meetings(user: dict = Depends(get_current_user)):
     # 按 owner 过滤
     own = [m for m in meetings if m.get("owner_id") == user["user_id"]]
     return {"meetings": own, "count": len(own)}
+
+
+@app.get("/api/templates")
+def get_templates(
+    q: str = Query("", alias="q"),
+    industry: str = Query(""),
+    sort: str = Query("default"),
+    page: int = Query(1),
+    page_size: int = Query(20),
+    user: dict = Depends(get_current_user),
+):
+    """GET /api/templates — list/search/filter enabled templates."""
+    try:
+        return list_templates(
+            query=q,
+            industry=industry,
+            sort=sort,
+            page=page,
+            page_size=page_size,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc), "status": 500})
+
+
+@app.get("/api/templates/applications/{request_id}")
+def get_template_application(request_id: str, user: dict = Depends(get_current_user)):
+    """GET /api/templates/applications/{request_id} — inspect apply result."""
+    record = get_application(request_id)
+    if not record or record.get("user_id") != user.get("user_id"):
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "template application not found", "status": 404},
+        )
+    return record
+
+
+@app.get("/api/templates/{template_id}")
+def get_template_detail(template_id: str, user: dict = Depends(get_current_user)):
+    """GET /api/templates/{template_id} — template detail."""
+    try:
+        return get_template(template_id)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": str(exc), "status": 404},
+        )
+
+
+@app.get("/api/templates/{template_id}/preview")
+def get_template_preview(template_id: str, user: dict = Depends(get_current_user)):
+    """GET /api/templates/{template_id}/preview — return template HTML."""
+    try:
+        html = get_template_html(template_id)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": str(exc), "status": 404},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail={"error": str(exc), "status": 500})
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
+@app.get("/api/templates/{template_id}/cover")
+def get_template_cover_endpoint(template_id: str, user: dict = Depends(get_current_user)):
+    """GET /api/templates/{template_id}/cover — return template cover image."""
+    try:
+        cover = get_template_cover(template_id)
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": str(exc), "status": 404},
+        )
+    if cover is None:
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "template cover not found", "status": 404},
+        )
+    media_type = "image/svg+xml" if cover.suffix.lower() == ".svg" else None
+    return FileResponse(
+        str(cover),
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
+
+
+@app.post("/api/templates/{template_id}/apply")
+async def post_template_apply(
+    template_id: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """POST /api/templates/{template_id}/apply — create meeting + Demo V1.0."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    request_id = (body.get("request_id") or "").strip() or request.headers.get(
+        "Idempotency-Key", ""
+    ).strip()
+    project_name = str(body.get("project_name") or "").strip()
+    meeting_id = str(body.get("meeting_id") or "").strip()
+
+    result = apply_template(
+        template_id=template_id,
+        user_id=user.get("user_id", ""),
+        project_name=project_name,
+        meeting_id=meeting_id,
+        request_id=request_id,
+    )
+    if result.get("status") != "success":
+        code = result.get("code")
+        if code == "forbidden":
+            status_code = 403
+        elif code in ("template_not_found", "meeting_not_found"):
+            status_code = 404
+        elif code == "meeting_conflict":
+            status_code = 409
+        elif code == "demo_init_failed":
+            status_code = 500
+        else:
+            status_code = 400
+        detail = {"error": result.get("error") or code, "status": status_code}
+        if code:
+            detail["code"] = code
+        if result.get("retryable") is not None:
+            detail["retryable"] = result.get("retryable")
+        raise HTTPException(status_code=status_code, detail=detail)
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════

@@ -602,6 +602,98 @@ iframe `srcdoc` 展示，不能直接拼接服务端磁盘或 `/docs/*` URL。
 
 ---
 
+## 5A. 行业模板 (MVP)
+
+行业模板是平台级只读资源。所有模板接口均需 Bearer 认证。
+
+### 5A.1 列出模板
+
+```
+GET /api/templates?q=电商&industry=电商零售&sort=default&page=1&page_size=20
+```
+
+响应：
+
+```json
+{
+  "templates": [
+    {
+      "id": "ecommerce-store",
+      "name": "电商经营看板",
+      "industry": "电商零售",
+      "scenario": "电商经营",
+      "summary": "适合电商商品列表、订单状态和促销活动页面。",
+      "tags": ["电商", "零售", "看板"],
+      "featured": true,
+      "sort_order": 100,
+      "updated_at": "2026-08-20T00:00:00Z",
+      "cover_url": "/api/templates/ecommerce-store/cover",
+      "preview_url": "/api/templates/ecommerce-store/preview"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "page_size": 20,
+  "industries": ["电商零售"]
+}
+```
+
+### 5A.2 模板详情
+
+```
+GET /api/templates/{template_id}
+```
+
+### 5A.3 模板预览
+
+```
+GET /api/templates/{template_id}/preview
+```
+
+返回 `text/html; charset=utf-8`，并设置 `Cache-Control: private, no-store`。
+
+### 5A.4 模板封面
+
+```
+GET /api/templates/{template_id}/cover
+```
+
+### 5A.5 应用模板
+
+```
+POST /api/templates/{template_id}/apply
+Idempotency-Key: <uuid>
+Content-Type: application/json
+
+{"project_name": "可选会议名称"}
+```
+
+成功时创建当前用户的会议，并把模板 HTML 初始化为 Demo V1.0：
+
+```json
+{
+  "status": "success",
+  "meeting_id": "TPL_20260820_143000_a1b2c3d4",
+  "reused": false,
+  "demo": {
+    "status": "initialized",
+    "version": 1,
+    "preview_url": "/api/meetings/TPL_20260820_143000_a1b2c3d4/demo/versions/1/content",
+    "download_url": "/api/meetings/TPL_20260820_143000_a1b2c3d4/docs/demo/download"
+  }
+}
+```
+
+重复请求可通过请求体 `request_id` 或 `Idempotency-Key` 头实现幂等。应用结果也可通过：
+
+```
+GET /api/templates/applications/{request_id}
+```
+
+查询。
+
+---
+
 ## 6. Chat 对话
 
 ### 6.1 发送 Chat 消息
@@ -1016,4 +1108,3 @@ GET /api/timeline
 | v0.22.5 | 2026-07-12 | demo版本占位拒绝 (write_demo_version 拦截"等待更多会议内容") + gkd阈值 10→50字 + demo-new-version SSE链路完整 (Rust显式分支 + 前端自动刷新版本列表) |
 | v0.22.4 | 2026-07-12 | SSE生命周期与采集解耦 (sse_active独立flag, 停采集后保持30s) + WS发送失败不再设capturing=false (防止服务端断百炼WS时误杀SSE) + 服务端必须bash run.sh启动 (注入BAILIAN_API_KEY/DASHSCOPE_API_KEY) |
 | v0.21.12 | 2026-07-11 | (基线) |
-
