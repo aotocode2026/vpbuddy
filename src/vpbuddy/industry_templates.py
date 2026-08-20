@@ -55,17 +55,24 @@ def _read_template_meta(template_id: str) -> dict[str, Any]:
 
 
 def _cover_file(template_id: str, meta: dict[str, Any]) -> Path | None:
+    template_root = _template_dir(template_id).resolve()
     explicit = (meta.get("cover_file") or "").strip()
     if explicit:
         candidate = _template_dir(template_id) / explicit
-        if candidate.is_file():
-            return candidate.resolve()
+        resolved = candidate.resolve()
+        if (
+            resolved.is_file()
+            and (template_root == resolved or template_root in resolved.parents)
+        ):
+            return resolved
 
     template_dir = _template_dir(template_id)
     if template_dir.is_dir():
         for child in sorted(template_dir.iterdir(), key=lambda p: p.name.lower()):
             if child.is_file() and child.suffix.lower() in _COVER_EXTS:
-                return child.resolve()
+                resolved = child.resolve()
+                if template_root == resolved or template_root in resolved.parents:
+                    return resolved
     return None
 
 
